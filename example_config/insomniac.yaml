@@ -1,0 +1,43 @@
+frequency_changes:
+  - time: 0
+    frequency: 300.0
+    beat_frequency: 10.0
+    pink_noise_on: true
+    pink_noise_volume: 0.4     # 40 / 100
+    tone_volume: 0.1           # 10 / 100
+  - time: 900                  # Start transition from ALPHA10 to THETA6
+    frequency: 300.0
+    beat_frequency: 10.0
+    pink_noise_on: true
+    pink_noise_volume: 0.4
+    tone_volume: 0.1
+  - time: 1200                 # End transition to THETA6
+    frequency: 150.0
+    beat_frequency: 6.0
+    pink_noise_on: true
+    pink_noise_volume: 0.2     # 20 / 100
+    tone_volume: 0.15          # 15 / 100
+  - time: 1800                 # Start transition from THETA6 to DELTA2
+    frequency: 150.0
+    beat_frequency: 6.0
+    pink_noise_on: true
+    pink_noise_volume: 0.2
+    tone_volume: 0.15
+  - time: 2100                 # End transition to DELTA2
+    frequency: 150.0
+    beat_frequency: 2.0
+    pink_noise_on: true
+    pink_noise_volume: 0.05    # 5 / 100
+    tone_volume: 0.2           # 20 / 100
+  - time: 2400                 # Start transition from DELTA2 to ALLOFF
+    frequency: 150.0
+    beat_frequency: 2.0
+    pink_noise_on: true
+    pink_noise_volume: 0.05
+    tone_volume: 0.2
+  - time: 2700                 # End transition to ALLOFF
+    frequency: 0.0
+    beat_frequency: 0.0
+    pink_noise_on: false
+    pink_noise_volume: 0.0
+    tone_volume: 0.0

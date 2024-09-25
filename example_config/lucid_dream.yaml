@@ -1,0 +1,63 @@
+frequency_changes:
+  - time: 0
+    frequency: 300.0
+    beat_frequency: 10.0
+    pink_noise_on: true
+    pink_noise_volume: 0.4
+    tone_volume: 0.6
+
+  - time: 300
+    frequency: 300.0
+    beat_frequency: 10.0
+    pink_noise_on: true
+    pink_noise_volume: 0.4
+    tone_volume: 0.6
+
+  - time: 420
+    frequency: 150.0
+    beat_frequency: 3.0
+    pink_noise_on: true
+    pink_noise_volume: 0.2
+    tone_volume: 0.8
+
+  - time: 720
+    frequency: 150.0
+    beat_frequency: 3.0
+    pink_noise_on: true
+    pink_noise_volume: 0.2
+    tone_volume: 0.8
+
+  - time: 840
+    frequency: 150.0
+    beat_frequency: 5.0
+    pink_noise_on: true
+    pink_noise_volume: 0.2
+    tone_volume: 0.8
+
+  - time: 1440
+    frequency: 150.0
+    beat_frequency: 5.0
+    pink_noise_on: true
+    pink_noise_volume: 0.2
+    tone_volume: 0.8
+
+  - time: 1500
+    frequency: 150.0
+    beat_frequency: 8.0
+    pink_noise_on: true
+    pink_noise_volume: 0.1
+    tone_volume: 0.9
+
+  - time: 1740
+    frequency: 150.0
+    beat_frequency: 8.0
+    pink_noise_on: true
+    pink_noise_volume: 0.1
+    tone_volume: 0.9
+
+  - time: 1800
+    frequency: 0.0
+    beat_frequency: 0.0
+    pink_noise_on: false
+    pink_noise_volume: 0.0
+    tone_volume: 0.0
