@@ -20,7 +20,6 @@ type ToneSet struct {
 	Name            string
 	Frequency       float64
 	BeatFrequency   float64
-	PinkNoiseOn     bool
 	PinkNoiseVolume float64
 	ToneVolume      float64
 }
@@ -30,7 +29,6 @@ type FrequencyChange struct {
 	Time            float64 `yaml:"time"`
 	Frequency       float64 `yaml:"frequency"`
 	BeatFrequency   float64 `yaml:"beat_frequency"`
-	PinkNoiseOn     bool    `yaml:"pink_noise_on"`
 	PinkNoiseVolume float64 `yaml:"pink_noise_volume"`
 	ToneVolume      float64 `yaml:"tone_volume"`
 }
@@ -170,7 +168,6 @@ func parseToneSet(name, specs string) (ToneSet, error) {
 		// All off
 		toneSet.Frequency = 0.0
 		toneSet.BeatFrequency = 0.0
-		toneSet.PinkNoiseOn = false
 		toneSet.PinkNoiseVolume = 0.0
 		toneSet.ToneVolume = 0.0
 		return toneSet, nil
@@ -186,7 +183,6 @@ func parseToneSet(name, specs string) (ToneSet, error) {
 			if err != nil {
 				return toneSet, fmt.Errorf("invalid pink noise amplitude: '%s'", ampStr)
 			}
-			toneSet.PinkNoiseOn = true
 			toneSet.PinkNoiseVolume = amp / 100.0
 		} else if strings.HasPrefix(part, "mix/") {
 			// Soundtrack input mix (not handled in frequency_changes)
@@ -300,7 +296,6 @@ func convertToFrequencyChanges(toneSets map[string]ToneSet, timeSequence []strin
 			Time:            newTime,
 			Frequency:       toneSet.Frequency,
 			BeatFrequency:   toneSet.BeatFrequency,
-			PinkNoiseOn:     toneSet.PinkNoiseOn,
 			PinkNoiseVolume: toneSet.PinkNoiseVolume,
 			ToneVolume:      toneSet.ToneVolume,
 		}

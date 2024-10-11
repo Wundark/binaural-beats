@@ -26,7 +26,6 @@ type ConfigFrequencyChange struct {
 	Time            float64 `yaml:"time"`              // Time in seconds
 	Frequency       float64 `yaml:"frequency"`         // Base frequency in Hz
 	BeatFrequency   float64 `yaml:"beat_frequency"`    // Beat frequency in Hz
-	PinkNoiseOn     bool    `yaml:"pink_noise_on"`     // Pink noise on or off
 	PinkNoiseVolume float64 `yaml:"pink_noise_volume"` // Volume for pink noise (0.0 to 1.0)
 	ToneVolume      float64 `yaml:"tone_volume"`       // Volume for the sine wave (0.0 to 1.0)
 }
@@ -116,7 +115,7 @@ func (vt *VariableTone) Err() error {
 // PinkNoiseControl controls the pink noise based on time.
 type PinkNoiseControl struct {
 	stream     beep.Streamer
-	volumeFunc func(t float64) (on bool, vol float64)
+	volumeFunc func(t float64) float64
 	sr         beep.SampleRate
 	pos        int
 }
@@ -126,8 +125,8 @@ func (pnc *PinkNoiseControl) Stream(samples [][2]float64) (n int, ok bool) {
 	n, ok = pnc.stream.Stream(samples)
 	for i := range samples[:n] {
 		t := float64(pnc.pos) / float64(pnc.sr)
-		on, vol := pnc.volumeFunc(t)
-		if !on {
+		vol := pnc.volumeFunc(t)
+		if vol <= 0 {
 			samples[i][0] = 0
 			samples[i][1] = 0
 		} else {
@@ -265,32 +264,39 @@ func createVolumeFunc(changes []ConfigFrequencyChange) func(t float64) float64 {
 	}
 }
 
-// createPinkNoiseFunc creates a function that returns whether pink noise is on and its volume at time t.
-func createPinkNoiseFunc(changes []ConfigFrequencyChange) func(t float64) (on bool, vol float64) {
-	return func(t float64) (bool, float64) {
+// createPinkNoiseFunc creates a function that returns the pink noise volume at time t, using linear interpolation.
+func createPinkNoiseFunc(changes []ConfigFrequencyChange) func(t float64) float64 {
+	return func(t float64) float64 {
 		if len(changes) == 0 {
-			return false, 0.0
+			return 0.0
 		}
 
 		// If t is before the first change
 		if t <= changes[0].Time {
-			return changes[0].PinkNoiseOn, changes[0].PinkNoiseVolume
+			return changes[0].PinkNoiseVolume
 		}
 
 		// If t is after the last change
 		if t >= changes[len(changes)-1].Time {
-			return changes[len(changes)-1].PinkNoiseOn, changes[len(changes)-1].PinkNoiseVolume
+			return changes[len(changes)-1].PinkNoiseVolume
 		}
 
 		// Find the interval in which t falls
 		for i := 0; i < len(changes)-1; i++ {
 			if t >= changes[i].Time && t < changes[i+1].Time {
-				// For pink noise, we will step change the settings
-				return changes[i].PinkNoiseOn, changes[i].PinkNoiseVolume
+				t1 := changes[i].Time
+				t2 := changes[i+1].Time
+
+				// Linear interpolation for volume
+				vol1 := changes[i].PinkNoiseVolume
+				vol2 := changes[i+1].PinkNoiseVolume
+				vol := vol1 + (vol2-vol1)*(t-t1)/(t2-t1)
+
+				return vol
 			}
 		}
 
-		return changes[len(changes)-1].PinkNoiseOn, changes[len(changes)-1].PinkNoiseVolume
+		return changes[len(changes)-1].PinkNoiseVolume
 	}
 }
 
@@ -409,27 +415,22 @@ func main() {
 
 		// Create a ticker to output status every 3 seconds
 		ticker := time.NewTicker(3 * time.Second)
-		tick := func() {
-			t := time.Since(startTime).Seconds()
-			if t > totalPlaybackTime {
-				return
-			}
-			freq := baseFreqFunc(t)
-			beatFreq := beatFreqFunc(t)
-			toneVol := volumeFunc(t)
-			pinkOn, pinkVol := pinkNoiseFunc(t)
-			fmt.Printf("Time: %.2f s / Total %.2f s, Base Frequency: %.2f Hz, Beat Frequency: %.2f Hz, Tone Volume: %.2f, Pink Noise On: %v, Pink Noise Volume: %.2f\n",
-				t, totalPlaybackTime, freq, beatFreq, toneVol, pinkOn, pinkVol)
-		}
 
 		go func() {
-			tick()
 			for {
 				select {
 				case <-ticker.C:
-					tick()
+					t := time.Since(startTime).Seconds()
+					if t > totalPlaybackTime {
+						return
+					}
+					freq := baseFreqFunc(t)
+					beatFreq := beatFreqFunc(t)
+					toneVol := volumeFunc(t)
+					pinkVol := pinkNoiseFunc(t)
+					fmt.Printf("Time: %.2f s, Base Frequency: %.2f Hz, Beat Frequency: %.2f Hz, Tone Volume: %.2f, Pink Noise Volume: %.2f\n",
+						t, freq, beatFreq, toneVol, pinkVol)
 				case <-done:
-					tick()
 					ticker.Stop()
 					return
 				}

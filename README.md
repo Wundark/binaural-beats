@@ -84,7 +84,6 @@ frequency_changes:
   - time: <float>               # Time in seconds from the start of playback
     frequency: <float>          # Base frequency in Hz
     beat_frequency: <float>     # Beat frequency in Hz
-    pink_noise_on: <bool>       # Whether pink noise is on (true or false)
     pink_noise_volume: <float>  # Pink noise volume (0.0 to 1.0)
     tone_volume: <float>        # Tone volume (0.0 to 1.0)
 ```
@@ -94,7 +93,6 @@ frequency_changes:
 - **time**: The point in time (in seconds) when the specified settings take effect. The time should be in ascending order.
 - **frequency**: The base frequency of the tone in Hertz (Hz).
 - **beat_frequency**: The frequency difference between the left and right channels, creating the binaural beat effect.
-- **pink_noise_on**: A boolean value indicating whether pink noise is enabled.
 - **pink_noise_volume**: The volume level of the pink noise, ranging from 0.0 (silent) to 1.0 (maximum volume).
 - **tone_volume**: The volume level of the tone, ranging from 0.0 to 1.0.
 
@@ -105,43 +103,36 @@ frequency_changes:
   - time: 0
     frequency: 300.0
     beat_frequency: 10.0
-    pink_noise_on: true
     pink_noise_volume: 0.4
     tone_volume: 0.1
   - time: 900
     frequency: 300.0
     beat_frequency: 10.0
-    pink_noise_on: true
     pink_noise_volume: 0.4
     tone_volume: 0.1
   - time: 1200
     frequency: 150.0
     beat_frequency: 6.0
-    pink_noise_on: true
     pink_noise_volume: 0.2
     tone_volume: 0.15
   - time: 1800
     frequency: 150.0
     beat_frequency: 6.0
-    pink_noise_on: true
     pink_noise_volume: 0.2
     tone_volume: 0.15
   - time: 2100
     frequency: 150.0
     beat_frequency: 2.0
-    pink_noise_on: true
     pink_noise_volume: 0.05
     tone_volume: 0.2
   - time: 2400
     frequency: 150.0
     beat_frequency: 2.0
-    pink_noise_on: true
     pink_noise_volume: 0.05
     tone_volume: 0.2
   - time: 2700
     frequency: 0.0
     beat_frequency: 0.0
-    pink_noise_on: false
     pink_noise_volume: 0.0
     tone_volume: 0.0
 ```
