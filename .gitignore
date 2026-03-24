@@ -3,3 +3,11 @@ convert/
 .vscode
 output/
 *.exe
+
+# GoReleaser
+dist/
+
+# Tauri
+tauri-app/node_modules/
+tauri-app/src-tauri/target/
+tauri-app/src-tauri/binaries/binaural-beats-*

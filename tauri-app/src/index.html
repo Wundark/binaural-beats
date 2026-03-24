@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Binaural Beats</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Binaural Beats</h1>
+      <p class="subtitle">Brainwave Entrainment Generator</p>
+    </header>
+
+    <section class="config-section">
+      <h2>Configuration</h2>
+      <div class="config-controls">
+        <button id="btn-load" class="btn btn-primary">Load Config</button>
+        <span id="config-name" class="config-name">No config loaded</span>
+      </div>
+    </section>
+
+    <section class="stretch-section">
+      <h2>Time Stretch</h2>
+      <div class="stretch-controls">
+        <input type="range" id="stretch-slider" min="0.5" max="3.0" step="0.1" value="1.0" />
+        <span id="stretch-value">1.0x</span>
+        <button id="btn-stretch" class="btn btn-secondary">Apply</button>
+      </div>
+    </section>
+
+    <section class="playback-section">
+      <h2>Playback</h2>
+      <div class="playback-controls">
+        <button id="btn-play" class="btn btn-play" disabled>Play</button>
+        <button id="btn-stop" class="btn btn-stop" disabled>Stop</button>
+        <button id="btn-export" class="btn btn-secondary" disabled>Export WAV</button>
+      </div>
+
+      <div class="progress-container">
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <div class="progress-time">
+          <span id="time-elapsed">0:00</span>
+          <span id="time-total">/ 0:00</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="status-section">
+      <h2>Status</h2>
+      <div class="status-grid">
+        <div class="status-item">
+          <label>Base Frequency</label>
+          <span id="status-freq" class="status-value">-- Hz</span>
+        </div>
+        <div class="status-item">
+          <label>Beat Frequency</label>
+          <span id="status-beat" class="status-value">-- Hz</span>
+        </div>
+        <div class="status-item">
+          <label>Tone Volume</label>
+          <span id="status-tone-vol" class="status-value">--%</span>
+        </div>
+        <div class="status-item">
+          <label>Pink Noise Volume</label>
+          <span id="status-pink-vol" class="status-value">--%</span>
+        </div>
+      </div>
+    </section>
+
+    <div id="message-bar" class="message-bar hidden"></div>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

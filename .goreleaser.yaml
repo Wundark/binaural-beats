@@ -1,0 +1,102 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: binaural-beats
+    main: ./cmd/binaural-beats
+    binary: binaural-beats
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: binaural-beats-android
+    main: ./cmd/binaural-beats
+    binary: binaural-beats
+    env:
+      - CGO_ENABLED=1
+      - CC={{ if index .Env "ANDROID_NDK_CC" }}{{ .Env.ANDROID_NDK_CC }}{{ else }}aarch64-linux-android21-clang{{ end }}
+    goos:
+      - android
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: converter
+    main: ./cmd/converter
+    binary: converter
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    builds:
+      - binaural-beats
+      - binaural-beats-android
+      - converter
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+      - example_config/*
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  github:
+    owner: Wundark
+    name: binaural-beats
+  draft: false
+  prerelease: auto

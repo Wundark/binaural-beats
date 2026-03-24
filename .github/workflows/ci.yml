@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build all targets
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./cmd/binaural-beats/
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build ./cmd/binaural-beats/
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./cmd/binaural-beats/
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./cmd/converter/
+
+      - name: GoReleaser check
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: check
+
+      - name: GoReleaser snapshot
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: build --snapshot --clean --skip=validate
