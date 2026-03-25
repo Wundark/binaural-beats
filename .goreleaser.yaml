@@ -29,20 +29,6 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
-  - id: binaural-beats-android
-    main: ./cmd/binaural-beats
-    binary: binaural-beats
-    env:
-      - CGO_ENABLED=1
-      - CC={{ if index .Env "ANDROID_NDK_CC" }}{{ .Env.ANDROID_NDK_CC }}{{ else }}aarch64-linux-android21-clang{{ end }}
-    goos:
-      - android
-    goarch:
-      - arm64
-    ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
-    mod_timestamp: "{{ .CommitTimestamp }}"
-
   - id: converter
     main: ./cmd/converter
     binary: converter
@@ -71,7 +57,6 @@ archives:
   - id: default
     ids:
       - binaural-beats
-      - binaural-beats-android
       - converter
     formats:
       - tar.gz

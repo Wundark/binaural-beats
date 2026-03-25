@@ -43,6 +43,25 @@ type SetStretchParams struct {
 	Factor float64 `json:"factor"`
 }
 
+// ProcessRequest handles a single JSON-RPC request string and returns a JSON response string.
+// This is the core handler used by both the stdin/stdout server and FFI bindings.
+func ProcessRequest(eng *engine.Engine, requestJSON string) string {
+	var req Request
+	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
+		resp := Response{
+			JSONRPC: "2.0",
+			Error:   &RPCError{Code: -32700, Message: "Parse error"},
+			ID:      nil,
+		}
+		data, _ := json.Marshal(resp)
+		return string(data)
+	}
+
+	resp := handleRequest(eng, req)
+	data, _ := json.Marshal(resp)
+	return string(data)
+}
+
 // Server handles JSON-RPC requests over stdin/stdout.
 type Server struct {
 	eng    *engine.Engine
@@ -50,7 +69,6 @@ type Server struct {
 	writer io.Writer
 }
 
-// NewServer creates a new RPC server.
 func NewServer(eng *engine.Engine) *Server {
 	return &Server{
 		eng:    eng,
@@ -59,7 +77,6 @@ func NewServer(eng *engine.Engine) *Server {
 	}
 }
 
-// Run starts the RPC server loop, reading from stdin and writing to stdout.
 func (s *Server) Run() error {
 	for {
 		line, err := s.reader.ReadBytes('\n')
@@ -70,28 +87,13 @@ func (s *Server) Run() error {
 			return fmt.Errorf("read error: %w", err)
 		}
 
-		var req Request
-		if err := json.Unmarshal(line, &req); err != nil {
-			s.writeResponse(Response{
-				JSONRPC: "2.0",
-				Error:   &RPCError{Code: -32700, Message: "Parse error"},
-				ID:      nil,
-			})
-			continue
-		}
-
-		resp := s.handleRequest(req)
-		s.writeResponse(resp)
+		resp := ProcessRequest(s.eng, string(line))
+		s.writer.Write([]byte(resp))
+		s.writer.Write([]byte("\n"))
 	}
 }
 
-func (s *Server) writeResponse(resp Response) {
-	data, _ := json.Marshal(resp)
-	data = append(data, '\n')
-	s.writer.Write(data)
-}
-
-func (s *Server) handleRequest(req Request) Response {
+func handleRequest(eng *engine.Engine, req Request) Response {
 	resp := Response{
 		JSONRPC: "2.0",
 		ID:      req.ID,
@@ -104,28 +106,28 @@ func (s *Server) handleRequest(req Request) Response {
 			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
 			return resp
 		}
-		if err := s.eng.LoadConfig(params.Path); err != nil {
+		if err := eng.LoadConfig(params.Path); err != nil {
 			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
 			return resp
 		}
 		resp.Result = map[string]interface{}{"ok": true}
 
 	case "play":
-		if err := s.eng.Play(); err != nil {
+		if err := eng.Play(); err != nil {
 			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
 			return resp
 		}
 		resp.Result = map[string]interface{}{"ok": true}
 
 	case "stop":
-		if err := s.eng.Stop(); err != nil {
+		if err := eng.Stop(); err != nil {
 			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
 			return resp
 		}
 		resp.Result = map[string]interface{}{"ok": true}
 
 	case "get_status":
-		status := s.eng.GetStatus()
+		status := eng.GetStatus()
 		resp.Result = status
 
 	case "export_wav":
@@ -134,7 +136,7 @@ func (s *Server) handleRequest(req Request) Response {
 			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
 			return resp
 		}
-		if err := s.eng.ExportWAV(params.Path); err != nil {
+		if err := eng.ExportWAV(params.Path); err != nil {
 			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
 			return resp
 		}
@@ -146,7 +148,7 @@ func (s *Server) handleRequest(req Request) Response {
 			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
 			return resp
 		}
-		if err := s.eng.SetStretch(params.Factor); err != nil {
+		if err := eng.SetStretch(params.Factor); err != nil {
 			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
 			return resp
 		}

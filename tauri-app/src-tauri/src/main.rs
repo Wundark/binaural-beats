@@ -3,12 +3,76 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tauri::Manager;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::Mutex;
 
-/// JSON-RPC 2.0 request
+// ─── FFI bindings for the Go shared library (Android) ───
+
+#[cfg(target_os = "android")]
+mod ffi {
+    use std::ffi::{CStr, CString};
+    use std::os::raw::c_char;
+
+    extern "C" {
+        pub fn BinauralProcessRPC(input: *const c_char) -> *mut c_char;
+        pub fn BinauralFreeString(s: *mut c_char);
+    }
+
+    pub fn call_rpc(request: &str) -> Result<String, String> {
+        let c_request = CString::new(request).map_err(|e| e.to_string())?;
+        unsafe {
+            let c_response = BinauralProcessRPC(c_request.as_ptr());
+            if c_response.is_null() {
+                return Err("Null response from engine".to_string());
+            }
+            let response = CStr::from_ptr(c_response)
+                .to_string_lossy()
+                .into_owned();
+            BinauralFreeString(c_response);
+            Ok(response)
+        }
+    }
+}
+
+// ─── Sidecar process (Desktop: Windows, macOS, Linux) ───
+
+#[cfg(not(target_os = "android"))]
+mod sidecar {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::process::{Child, ChildStdin, ChildStdout};
+
+    pub struct Process {
+        #[allow(dead_code)]
+        pub child: Child,
+        pub stdin: ChildStdin,
+        pub stdout: BufReader<ChildStdout>,
+    }
+
+    impl Process {
+        pub async fn call_rpc(&mut self, request: &str) -> Result<String, String> {
+            let mut data = request.as_bytes().to_vec();
+            data.push(b'\n');
+
+            self.stdin
+                .write_all(&data)
+                .await
+                .map_err(|e| format!("Write to sidecar failed: {}", e))?;
+            self.stdin
+                .flush()
+                .await
+                .map_err(|e| format!("Flush sidecar stdin failed: {}", e))?;
+
+            let mut line = String::new();
+            self.stdout
+                .read_line(&mut line)
+                .await
+                .map_err(|e| format!("Read from sidecar failed: {}", e))?;
+            Ok(line)
+        }
+    }
+}
+
+// ─── Shared types ───
+
 #[derive(Serialize)]
 struct RpcRequest {
     jsonrpc: &'static str,
@@ -18,7 +82,6 @@ struct RpcRequest {
     id: u64,
 }
 
-/// JSON-RPC 2.0 response
 #[derive(Deserialize, Debug)]
 struct RpcResponse {
     #[allow(dead_code)]
@@ -36,18 +99,37 @@ struct RpcError {
     message: String,
 }
 
-/// Manages the sidecar process and RPC communication
-struct Sidecar {
-    #[allow(dead_code)]
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+#[derive(Serialize, Deserialize, Clone)]
+struct PlaybackStatus {
+    time: f64,
+    frequency: f64,
+    beat_frequency: f64,
+    tone_volume: f64,
+    pink_noise_volume: f64,
+    total_duration: f64,
+    is_playing: bool,
+    config_loaded: bool,
+}
+
+// ─── Backend abstraction ───
+
+struct Backend {
+    #[cfg(not(target_os = "android"))]
+    sidecar: Option<sidecar::Process>,
     next_id: u64,
 }
 
-type SidecarState = Arc<Mutex<Option<Sidecar>>>;
+type BackendState = Arc<Mutex<Backend>>;
 
-impl Sidecar {
+impl Backend {
+    fn new() -> Self {
+        Backend {
+            #[cfg(not(target_os = "android"))]
+            sidecar: None,
+            next_id: 1,
+        }
+    }
+
     async fn call(
         &mut self,
         method: &str,
@@ -61,26 +143,12 @@ impl Sidecar {
         };
         self.next_id += 1;
 
-        let mut data = serde_json::to_vec(&req).map_err(|e| e.to_string())?;
-        data.push(b'\n');
+        let request_json = serde_json::to_string(&req).map_err(|e| e.to_string())?;
 
-        self.stdin
-            .write_all(&data)
-            .await
-            .map_err(|e| format!("Failed to write to sidecar: {}", e))?;
-        self.stdin
-            .flush()
-            .await
-            .map_err(|e| format!("Failed to flush sidecar stdin: {}", e))?;
+        let response_json = self.send_request(&request_json).await?;
 
-        let mut line = String::new();
-        self.stdout
-            .read_line(&mut line)
-            .await
-            .map_err(|e| format!("Failed to read from sidecar: {}", e))?;
-
-        let resp: RpcResponse =
-            serde_json::from_str(&line).map_err(|e| format!("Invalid response: {}", e))?;
+        let resp: RpcResponse = serde_json::from_str(&response_json)
+            .map_err(|e| format!("Invalid response: {}", e))?;
 
         if let Some(err) = resp.error {
             return Err(err.message);
@@ -88,133 +156,126 @@ impl Sidecar {
 
         Ok(resp.result.unwrap_or(serde_json::Value::Null))
     }
+
+    #[cfg(target_os = "android")]
+    async fn send_request(&mut self, request_json: &str) -> Result<String, String> {
+        ffi::call_rpc(request_json)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    async fn send_request(&mut self, request_json: &str) -> Result<String, String> {
+        let proc = self.sidecar.as_mut().ok_or("Sidecar not running")?;
+        proc.call_rpc(request_json).await
+    }
 }
 
-/// Playback status from the Go engine
-#[derive(Serialize, Deserialize, Clone)]
-struct PlaybackStatus {
-    time: f64,
-    frequency: f64,
-    beat_frequency: f64,
-    tone_volume: f64,
-    pink_noise_volume: f64,
-    total_duration: f64,
-    is_playing: bool,
-    config_loaded: bool,
-}
+// ─── Tauri commands ───
 
 #[tauri::command]
-async fn load_config(state: tauri::State<'_, SidecarState>, path: String) -> Result<String, String> {
+async fn load_config(state: tauri::State<'_, BackendState>, path: String) -> Result<String, String> {
     let mut guard = state.lock().await;
-    let sidecar = guard.as_mut().ok_or("Sidecar not running")?;
-    sidecar
-        .call(
-            "load_config",
-            Some(serde_json::json!({ "path": path })),
-        )
+    guard
+        .call("load_config", Some(serde_json::json!({ "path": path })))
         .await?;
     Ok("Config loaded".to_string())
 }
 
 #[tauri::command]
-async fn play(state: tauri::State<'_, SidecarState>) -> Result<String, String> {
+async fn play(state: tauri::State<'_, BackendState>) -> Result<String, String> {
     let mut guard = state.lock().await;
-    let sidecar = guard.as_mut().ok_or("Sidecar not running")?;
-    sidecar.call("play", None).await?;
+    guard.call("play", None).await?;
     Ok("Playing".to_string())
 }
 
 #[tauri::command]
-async fn stop(state: tauri::State<'_, SidecarState>) -> Result<String, String> {
+async fn stop(state: tauri::State<'_, BackendState>) -> Result<String, String> {
     let mut guard = state.lock().await;
-    let sidecar = guard.as_mut().ok_or("Sidecar not running")?;
-    sidecar.call("stop", None).await?;
+    guard.call("stop", None).await?;
     Ok("Stopped".to_string())
 }
 
 #[tauri::command]
-async fn get_status(state: tauri::State<'_, SidecarState>) -> Result<PlaybackStatus, String> {
+async fn get_status(state: tauri::State<'_, BackendState>) -> Result<PlaybackStatus, String> {
     let mut guard = state.lock().await;
-    let sidecar = guard.as_mut().ok_or("Sidecar not running")?;
-    let result = sidecar.call("get_status", None).await?;
-    let status: PlaybackStatus =
-        serde_json::from_value(result).map_err(|e| format!("Failed to parse status: {}", e))?;
-    Ok(status)
+    let result = guard.call("get_status", None).await?;
+    serde_json::from_value(result).map_err(|e| format!("Failed to parse status: {}", e))
 }
 
 #[tauri::command]
-async fn export_wav(state: tauri::State<'_, SidecarState>, path: String) -> Result<String, String> {
+async fn export_wav(state: tauri::State<'_, BackendState>, path: String) -> Result<String, String> {
     let mut guard = state.lock().await;
-    let sidecar = guard.as_mut().ok_or("Sidecar not running")?;
-    sidecar
+    guard
         .call("export_wav", Some(serde_json::json!({ "path": path })))
         .await?;
     Ok("Export complete".to_string())
 }
 
 #[tauri::command]
-async fn set_stretch(
-    state: tauri::State<'_, SidecarState>,
-    factor: f64,
-) -> Result<String, String> {
+async fn set_stretch(state: tauri::State<'_, BackendState>, factor: f64) -> Result<String, String> {
     let mut guard = state.lock().await;
-    let sidecar = guard.as_mut().ok_or("Sidecar not running")?;
-    sidecar
-        .call(
-            "set_stretch",
-            Some(serde_json::json!({ "factor": factor })),
-        )
+    guard
+        .call("set_stretch", Some(serde_json::json!({ "factor": factor })))
         .await?;
     Ok(format!("Stretch set to {:.1}x", factor))
 }
 
+// ─── App setup ───
+
+#[cfg(not(target_os = "android"))]
+fn setup_desktop(app: &tauri::App, backend_state: BackendState) {
+    use tauri::Manager;
+    use tokio::io::BufReader;
+
+    let resource_path = app
+        .path()
+        .resource_dir()
+        .expect("Failed to get resource dir");
+    let sidecar_name = if cfg!(target_os = "windows") {
+        "binaural-beats.exe"
+    } else {
+        "binaural-beats"
+    };
+    let sidecar_path = resource_path.join("binaries").join(sidecar_name);
+
+    tauri::async_runtime::spawn(async move {
+        let mut child = tokio::process::Command::new(&sidecar_path)
+            .arg("-rpc")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+            .unwrap_or_else(|e| panic!("Failed to spawn sidecar at {:?}: {}", sidecar_path, e));
+
+        let stdin = child.stdin.take().expect("Failed to get sidecar stdin");
+        let stdout = child.stdout.take().expect("Failed to get sidecar stdout");
+
+        let process = sidecar::Process {
+            child,
+            stdin,
+            stdout: BufReader::new(stdout),
+        };
+
+        let mut guard = backend_state.lock().await;
+        guard.sidecar = Some(process);
+    });
+}
+
 fn main() {
+    let backend_state: BackendState = Arc::new(Mutex::new(Backend::new()));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            let sidecar_state: SidecarState = Arc::new(Mutex::new(None));
-            app.manage(sidecar_state.clone());
+        .setup({
+            let state = backend_state.clone();
+            move |app| {
+                app.manage(state.clone());
 
-            // Resolve the sidecar binary path
-            let resource_path = app
-                .path()
-                .resource_dir()
-                .expect("Failed to get resource dir");
-            let sidecar_name = if cfg!(target_os = "windows") {
-                "binaural-beats.exe"
-            } else {
-                "binaural-beats"
-            };
-            let sidecar_path = resource_path.join("binaries").join(sidecar_name);
+                #[cfg(not(target_os = "android"))]
+                setup_desktop(app, state);
 
-            // Spawn the sidecar process
-            tauri::async_runtime::spawn(async move {
-                let mut child = tokio::process::Command::new(&sidecar_path)
-                    .arg("-rpc")
-                    .stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::inherit())
-                    .spawn()
-                    .unwrap_or_else(|e| {
-                        panic!("Failed to spawn sidecar at {:?}: {}", sidecar_path, e)
-                    });
-
-                let stdin = child.stdin.take().expect("Failed to get sidecar stdin");
-                let stdout = child.stdout.take().expect("Failed to get sidecar stdout");
-
-                let sidecar = Sidecar {
-                    child,
-                    stdin,
-                    stdout: BufReader::new(stdout),
-                    next_id: 1,
-                };
-
-                let mut guard = sidecar_state.lock().await;
-                *guard = Some(sidecar);
-            });
-
-            Ok(())
+                Ok(())
+            }
         })
         .invoke_handler(tauri::generate_handler![
             load_config,
