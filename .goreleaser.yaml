@@ -69,7 +69,7 @@ builds:
 
 archives:
   - id: default
-    build_ids:
+    ids:
       - binaural-beats
       - binaural-beats-android
       - converter
