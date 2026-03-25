@@ -39,4 +39,4 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: build --snapshot --clean --skip=validate
+          args: build --snapshot --clean --skip=validate --id=binaural-beats --id=converter
