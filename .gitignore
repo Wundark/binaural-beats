@@ -3,3 +3,18 @@ convert/
 .vscode
 output/
 *.exe
+
+# GoReleaser
+dist/
+
+# Tauri
+tauri-app/node_modules/
+tauri-app/src-tauri/target/
+tauri-app/src-tauri/binaries/binaural-beats-*
+
+# Android build artifacts
+tauri-app/src-tauri/gen/android/.gradle/
+tauri-app/src-tauri/gen/android/build/
+tauri-app/src-tauri/gen/android/app/build/
+tauri-app/src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
+tauri-app/src-tauri/gen/android/app/src/main/jniLibs/armeabi-v7a/
