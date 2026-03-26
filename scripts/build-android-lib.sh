@@ -62,8 +62,8 @@ build_arch() {
     GOARCH="$goarch" \
     CC="$cc_path" \
     CXX="$cc_path++" \
-    CGO_CFLAGS="--sysroot=$sysroot -D__ANDROID_API__=$MIN_SDK" \
-    CGO_CXXFLAGS="--sysroot=$sysroot -D__ANDROID_API__=$MIN_SDK" \
+    CGO_CFLAGS="--sysroot=$sysroot" \
+    CGO_CXXFLAGS="--sysroot=$sysroot" \
     CGO_LDFLAGS="--sysroot=$sysroot -llog -landroid" \
     go build -buildmode=c-shared -mod=vendor \
         -ldflags="-s -w" \
