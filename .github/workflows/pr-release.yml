@@ -92,7 +92,7 @@ jobs:
 
       - name: Install Tauri CLI
         if: steps.cache-tauri.outputs.cache-hit != 'true'
-        run: cargo install tauri-cli
+        run: cargo install tauri-cli --version "2.0.0" --locked
 
       - name: Build Go shared libraries for Android
         run: ./scripts/build-android-lib.sh
