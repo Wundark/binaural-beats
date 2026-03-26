@@ -78,7 +78,20 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Cache Tauri CLI
+        id: cache-tauri
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: tauri-cli-${{ runner.os }}-${{ hashFiles('tauri-app/src-tauri/Cargo.toml') }}
+          restore-keys: |
+            tauri-cli-${{ runner.os }}-
+
       - name: Install Tauri CLI
+        if: steps.cache-tauri.outputs.cache-hit != 'true'
         run: cargo install tauri-cli
 
       - name: Build Go shared libraries for Android
@@ -195,7 +208,20 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Cache Tauri CLI
+        id: cache-tauri
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-tauri
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: tauri-cli-${{ runner.os }}-${{ hashFiles('tauri-app/src-tauri/Cargo.toml') }}
+          restore-keys: |
+            tauri-cli-${{ runner.os }}-
+
       - name: Install Tauri CLI
+        if: steps.cache-tauri.outputs.cache-hit != 'true'
         run: cargo install tauri-cli
 
       - name: Build Go shared libraries for Android
