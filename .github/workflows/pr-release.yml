@@ -1,0 +1,102 @@
+name: PR Release Builds
+
+# pull_request_target runs the workflow from the BASE branch, not the PR branch.
+# This prevents contributors from modifying the workflow to bypass approval gates.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  # ── Owner PRs: build immediately, no approval needed ──
+  build-owner:
+    if: github.event.pull_request.user.login == 'Wundark'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install ALSA dev headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: Build release binaries (snapshot)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: build --snapshot --clean --skip=validate --id=binaural-beats --id=converter
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ github.event.pull_request.number }}-binaries
+          path: dist/
+          retention-days: 14
+
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-release-builds
+          message: |
+            ## Release Binaries Built
+
+            Snapshot binaries for this PR are available as [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+            **Platforms:** Linux (amd64, arm64, armv7), macOS (amd64, arm64), Windows (amd64)
+
+            Built from commit: ${{ github.event.pull_request.head.sha }}
+
+  # ── External contributor PRs: require approval first ──
+  build-external:
+    if: github.event.pull_request.user.login != 'Wundark'
+    runs-on: ubuntu-latest
+    # This environment must be created in repo Settings → Environments
+    # with "Wundark" added as a required reviewer.
+    environment: pr-builds
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install ALSA dev headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: Build release binaries (snapshot)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: build --snapshot --clean --skip=validate --id=binaural-beats --id=converter
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ github.event.pull_request.number }}-binaries
+          path: dist/
+          retention-days: 14
+
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-release-builds
+          message: |
+            ## Release Binaries Built
+
+            Snapshot binaries for this PR are available as [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+            **Platforms:** Linux (amd64, arm64, armv7), macOS (amd64, arm64), Windows (amd64)
+
+            Built from commit: ${{ github.event.pull_request.head.sha }}
