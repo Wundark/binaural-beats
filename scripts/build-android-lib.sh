@@ -47,7 +47,6 @@ build_arch() {
     local goarch="$1"
     local cc="$2"
     local jni_dir="$3"
-    local arch_sysroot="$4"
 
     local output_dir="$PROJECT_ROOT/tauri-app/src-tauri/gen/android/app/src/main/jniLibs/$jni_dir"
     mkdir -p "$output_dir"
