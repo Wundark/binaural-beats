@@ -35,25 +35,95 @@ jobs:
           version: latest
           args: build --snapshot --clean --skip=validate --id=binaural-beats --id=converter
 
-      - name: Upload artifacts
+      - name: Upload desktop binaries
         uses: actions/upload-artifact@v4
         with:
-          name: pr-${{ github.event.pull_request.number }}-binaries
+          name: pr-${{ github.event.pull_request.number }}-desktop-binaries
           path: dist/
           retention-days: 14
 
+  # ── Owner PRs: Android APK build ──
+  build-owner-android:
+    if: github.event.pull_request.user.login == 'Wundark'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;25.2.9519653"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli
+
+      - name: Build Go shared libraries for Android
+        run: ./scripts/build-android-lib.sh
+
+      - name: Install frontend dependencies
+        working-directory: tauri-app
+        run: npm install
+
+      - name: Build Android APK
+        working-directory: tauri-app
+        run: cargo tauri android build --apk
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ github.event.pull_request.number }}-android-apk
+          path: |
+            tauri-app/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          retention-days: 14
+
+  # ── Owner PRs: post comment after both builds complete ──
+  comment-owner:
+    needs: [build-owner, build-owner-android]
+    # Run even if android build fails so we still get the desktop comment
+    if: always() && github.event.pull_request.user.login == 'Wundark'
+    runs-on: ubuntu-latest
+    steps:
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: pr-release-builds
           message: |
-            ## Release Binaries Built
+            ## Release Builds
 
-            Snapshot binaries for this PR are available as [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+            | Artifact | Status |
+            |----------|--------|
+            | Desktop binaries (Linux, macOS, Windows) | ${{ needs.build-owner.result == 'success' && '✅' || '❌' }} |
+            | Android APK | ${{ needs.build-owner-android.result == 'success' && '✅' || '❌' }} |
 
-            **Platforms:** Linux (amd64, arm64, armv7), macOS (amd64, arm64), Windows (amd64)
+            Download from [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
 
-            Built from commit: ${{ github.event.pull_request.head.sha }}
+            Built from commit: `${{ github.event.pull_request.head.sha }}`
 
   # ── External contributor PRs: require approval first ──
   build-external:
@@ -81,22 +151,92 @@ jobs:
           version: latest
           args: build --snapshot --clean --skip=validate --id=binaural-beats --id=converter
 
-      - name: Upload artifacts
+      - name: Upload desktop binaries
         uses: actions/upload-artifact@v4
         with:
-          name: pr-${{ github.event.pull_request.number }}-binaries
+          name: pr-${{ github.event.pull_request.number }}-desktop-binaries
           path: dist/
           retention-days: 14
 
+  # ── External contributor PRs: Android APK (after approval) ──
+  build-external-android:
+    if: github.event.pull_request.user.login != 'Wundark'
+    needs: [build-external]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;25.2.9519653"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli
+
+      - name: Build Go shared libraries for Android
+        run: ./scripts/build-android-lib.sh
+
+      - name: Install frontend dependencies
+        working-directory: tauri-app
+        run: npm install
+
+      - name: Build Android APK
+        working-directory: tauri-app
+        run: cargo tauri android build --apk
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-${{ github.event.pull_request.number }}-android-apk
+          path: |
+            tauri-app/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          retention-days: 14
+
+  # ── External contributor PRs: post comment after both builds ──
+  comment-external:
+    if: always() && github.event.pull_request.user.login != 'Wundark'
+    needs: [build-external, build-external-android]
+    runs-on: ubuntu-latest
+    steps:
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: pr-release-builds
           message: |
-            ## Release Binaries Built
+            ## Release Builds
 
-            Snapshot binaries for this PR are available as [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+            | Artifact | Status |
+            |----------|--------|
+            | Desktop binaries (Linux, macOS, Windows) | ${{ needs.build-external.result == 'success' && '✅' || '❌' }} |
+            | Android APK | ${{ needs.build-external-android.result == 'success' && '✅' || '❌' }} |
 
-            **Platforms:** Linux (amd64, arm64, armv7), macOS (amd64, arm64), Windows (amd64)
+            Download from [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
 
-            Built from commit: ${{ github.event.pull_request.head.sha }}
+            Built from commit: `${{ github.event.pull_request.head.sha }}`
