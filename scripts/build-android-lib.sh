@@ -47,17 +47,25 @@ build_arch() {
     local goarch="$1"
     local cc="$2"
     local jni_dir="$3"
+    local arch_sysroot="$4"
 
     local output_dir="$PROJECT_ROOT/tauri-app/src-tauri/gen/android/app/src/main/jniLibs/$jni_dir"
     mkdir -p "$output_dir"
 
     echo "Building libbinaural.so for $jni_dir (GOARCH=$goarch)..."
 
+    local sysroot="$TOOLCHAIN/sysroot"
+    local cc_path="$TOOLCHAIN/bin/$cc"
+
     cd "$PROJECT_ROOT"
     CGO_ENABLED=1 \
     GOOS=android \
     GOARCH="$goarch" \
-    CC="$TOOLCHAIN/bin/$cc" \
+    CC="$cc_path" \
+    CXX="$cc_path++" \
+    CGO_CFLAGS="--sysroot=$sysroot -D__ANDROID_API__=$MIN_SDK" \
+    CGO_CXXFLAGS="--sysroot=$sysroot -D__ANDROID_API__=$MIN_SDK" \
+    CGO_LDFLAGS="--sysroot=$sysroot -llog -landroid" \
     go build -buildmode=c-shared -mod=vendor \
         -ldflags="-s -w" \
         -o "$output_dir/libbinaural.so" \
