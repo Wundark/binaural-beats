@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.wundark.binauralbeats"
+    namespace = "com.wundark.binaural_beats"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.wundark.binauralbeats"
+        applicationId = "com.wundark.binaural_beats"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
