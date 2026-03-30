@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
   actions: read
 
 jobs:
@@ -121,6 +120,8 @@ jobs:
     # Run even if android build fails so we still get the desktop comment
     if: always() && github.event.pull_request.user.login == 'Wundark'
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
@@ -250,6 +251,8 @@ jobs:
     if: always() && github.event.pull_request.user.login != 'Wundark'
     needs: [build-external, build-external-android]
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
