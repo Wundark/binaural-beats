@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tauri::Manager;
 use tokio::sync::Mutex;
 
 // ─── FFI bindings for the Go shared library (Android) ───
@@ -220,7 +221,6 @@ async fn set_stretch(state: tauri::State<'_, BackendState>, factor: f64) -> Resu
 
 #[cfg(not(target_os = "android"))]
 fn setup_desktop(app: &tauri::App, backend_state: BackendState) {
-    use tauri::Manager;
     use tokio::io::BufReader;
 
     let resource_path = app
