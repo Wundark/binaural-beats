@@ -1,3 +1,3 @@
-package com.wundark.binauralbeats
+package com.wundark.binaural_beats
 
 class MainActivity : TauriActivity()

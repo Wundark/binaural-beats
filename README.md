@@ -144,9 +144,158 @@ This example replicates the ["Insomniac" file](https://github.com/brainbang/sbag
 ## **Project Structure**
 
 - **cmd/binaural-beats/main.go**: The binaural beats player.
-- **cmd/converter/main.go**: Convert from SBG to YAML
-- **example_config/lucid_dream.yaml**: The Lucid Dream SBG converted to YAML
-- **example_config/insomniac.yaml**: The Insomniac SBG converted to YAML
+- **cmd/binaural-beats-lib/main.go**: C shared library build for Android FFI.
+- **cmd/converter/main.go**: Convert from SBG to YAML.
+- **internal/engine/**: Audio engine package (playback, WAV export, status).
+- **internal/rpc/**: JSON-RPC 2.0 server for IPC between Tauri and the Go engine.
+- **tauri-app/**: Tauri v2 desktop/mobile app (Rust backend + HTML/JS frontend).
+- **scripts/**: Build helper scripts for sidecars and Android libraries.
+- **example_config/**: Example YAML session configurations.
+- **.goreleaser.yaml**: GoReleaser cross-platform build configuration.
+- **.github/workflows/**: CI, release, Android APK, and PR build workflows.
+
+---
+
+## **Downloads**
+
+Pre-built binaries for all platforms are available on the [GitHub Releases](https://github.com/Wundark/binaural-beats/releases) page:
+
+- **Linux**: amd64, arm64, armv7
+- **macOS**: Intel (amd64) and Apple Silicon (arm64)
+- **Windows**: amd64
+- **Android**: APK (arm64, armv7)
+
+---
+
+## **Desktop App (Tauri)**
+
+A cross-platform desktop GUI is available via Tauri. It communicates with the Go audio engine over JSON-RPC.
+
+### **Prerequisites**
+
+- [Node.js](https://nodejs.org/) 20+
+- [Rust](https://rustup.rs/) (stable)
+- Go 1.20+
+- Platform dependencies for Tauri: see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+
+### **Build and Run**
+
+```bash
+# Build the Go sidecar binary for your platform
+./scripts/build-sidecar.sh
+
+# Install frontend dependencies and launch dev mode
+cd tauri-app
+npm install
+npm run tauri dev
+```
+
+### **Build for Distribution**
+
+```bash
+cd tauri-app
+npm run tauri build
+```
+
+---
+
+## **Android APK**
+
+### **Prerequisites**
+
+- Go 1.20+
+- Android SDK + NDK 25.x (set `ANDROID_NDK_HOME`)
+- Rust with Android targets: `rustup target add aarch64-linux-android armv7-linux-androideabi`
+- Java 17+
+- Node.js 20+
+- Tauri CLI: `cargo install tauri-cli`
+
+### **Build**
+
+```bash
+# Build the Go shared libraries for Android
+./scripts/build-android-lib.sh
+
+# Build the APK
+cd tauri-app
+npm install
+cargo tauri android build --apk
+```
+
+The APK will be at `tauri-app/src-tauri/gen/android/app/build/outputs/apk/`.
+
+---
+
+## **RPC Mode**
+
+The binary supports a JSON-RPC 2.0 server mode for integration with frontends:
+
+```bash
+binaural-beats -rpc
+```
+
+This reads newline-delimited JSON-RPC requests from stdin and writes responses to stdout. Available methods:
+
+| Method | Params | Description |
+|--------|--------|-------------|
+| `load_config` | `{"path": "config.yaml"}` | Load a YAML configuration file |
+| `play` | — | Start real-time playback |
+| `stop` | — | Stop playback |
+| `get_status` | — | Get current playback status |
+| `export_wav` | `{"path": "output.wav"}` | Export session to WAV file |
+| `set_stretch` | `{"factor": 1.5}` | Set time stretch factor |
+
+Example:
+
+```bash
+echo '{"jsonrpc":"2.0","method":"load_config","params":{"path":"example_config/insomniac.yaml"},"id":1}' | binaural-beats -rpc
+```
+
+---
+
+## **Creating a Release**
+
+Releases are fully automated via GitHub Actions. To create a release:
+
+```bash
+# 1. Tag the commit
+git tag v1.0.0
+
+# 2. Push the tag
+git push origin v1.0.0
+```
+
+This triggers two workflows:
+
+1. **Release** (`.github/workflows/release.yml`) — Builds desktop binaries for all platforms via GoReleaser and creates a GitHub Release with archives + checksums.
+2. **Android APK** (`.github/workflows/android.yml`) — Builds the Android APK via Tauri and uploads it to the same GitHub Release.
+
+### **Version format**
+
+Tags must match `v*` (e.g., `v1.0.0`, `v0.2.0-beta`). Pre-release tags (containing `-`) are automatically marked as pre-releases.
+
+### **PR builds**
+
+Every pull request automatically builds snapshot binaries and an Android APK, uploaded as workflow artifacts. External contributors require approval via the `pr-builds` GitHub environment before builds run.
+
+---
+
+## **CI/CD Overview**
+
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| **CI** | Push / PR | `go vet`, multi-platform build, GoReleaser snapshot |
+| **Release** | Tag `v*` | Full GoReleaser release to GitHub Releases |
+| **Android APK** | Tag `v*` / manual | Build + upload Android APK to release |
+| **PR Release** | Pull request | Snapshot binaries + APK as PR artifacts |
+
+### **Environment setup (one-time)**
+
+For the PR approval gate to work for external contributors, create a GitHub environment:
+
+1. Repo **Settings → Environments → New environment** → name it `pr-builds`
+2. Add `Wundark` as a required reviewer
+3. Save
 
 ---
 
