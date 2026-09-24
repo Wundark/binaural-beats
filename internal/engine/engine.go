@@ -55,17 +55,6 @@ func NewPinkNoise() *PinkNoise {
 	}
 }
 
-func (pn *PinkNoise) Stream(samples [][2]float64) (n int, ok bool) {
-	for i := range samples {
-		sample := pn.nextSample()
-		samples[i][0] += sample
-		samples[i][1] += sample
-	}
-	return len(samples), true
-}
-
-func (pn *PinkNoise) Err() error { return nil }
-
 func (pn *PinkNoise) nextSample() float64 {
 	lastKey := pn.key
 	pn.key++
@@ -81,63 +70,79 @@ func (pn *PinkNoise) nextSample() float64 {
 	return (pn.white[0] + pn.white[1] + pn.white[2] + pn.white[3] + pn.white[4]) * 0.1
 }
 
-// VariableTone generates a sine wave with a frequency that changes over time.
-type VariableTone struct {
-	sr         beep.SampleRate
-	pos        int
-	phase      float64
-	freqFunc   func(t float64) float64
-	volumeFunc func(t float64) float64
-	channel    int
+// BinauralStream generates the complete stereo signal: a base-frequency tone on
+// the left channel, a base+beat tone on the right channel, and pink noise on
+// both. Every frame it returns is written from scratch, so the output never
+// depends on what the caller's buffer held before (beep.Mixer reuses its
+// scratch buffer between streamers and blocks).
+type BinauralStream struct {
+	sr      beep.SampleRate
+	pos     int
+	phaseL  float64
+	phaseR  float64
+	changes []FrequencyChange
+	seg     int
+	noise   *PinkNoise
 }
 
-func (vt *VariableTone) Stream(samples [][2]float64) (n int, ok bool) {
+// NewBinauralStream creates a stereo generator for the given (time-sorted) changes.
+func NewBinauralStream(sr beep.SampleRate, changes []FrequencyChange, noise *PinkNoise) *BinauralStream {
+	return &BinauralStream{sr: sr, changes: changes, noise: noise}
+}
+
+// params returns the interpolated parameters at time t. It matches interpolate
+// but keeps a cursor into changes, since t only moves forward while streaming.
+func (bs *BinauralStream) params(t float64) (freq, beat, toneVol, noiseVol float64) {
+	c := bs.changes
+	if len(c) == 0 {
+		return 0, 0, 1.0, 0
+	}
+	if t <= c[0].Time {
+		return c[0].Frequency, c[0].BeatFrequency, c[0].ToneVolume, c[0].PinkNoiseVolume
+	}
+	last := c[len(c)-1]
+	if t >= last.Time {
+		return last.Frequency, last.BeatFrequency, last.ToneVolume, last.PinkNoiseVolume
+	}
+	if bs.seg >= len(c)-1 || t < c[bs.seg].Time {
+		bs.seg = 0
+	}
+	for bs.seg < len(c)-2 && t >= c[bs.seg+1].Time {
+		bs.seg++
+	}
+	a, b := c[bs.seg], c[bs.seg+1]
+	f := (t - a.Time) / (b.Time - a.Time)
+	return a.Frequency + (b.Frequency-a.Frequency)*f,
+		a.BeatFrequency + (b.BeatFrequency-a.BeatFrequency)*f,
+		a.ToneVolume + (b.ToneVolume-a.ToneVolume)*f,
+		a.PinkNoiseVolume + (b.PinkNoiseVolume-a.PinkNoiseVolume)*f
+}
+
+func (bs *BinauralStream) Stream(samples [][2]float64) (n int, ok bool) {
+	sr := float64(bs.sr)
 	for i := range samples {
-		t := float64(vt.pos) / float64(vt.sr)
-		f := vt.freqFunc(t)
-		vol := vt.volumeFunc(t)
-		deltaPhase := 2 * math.Pi * f / float64(vt.sr)
-		vt.phase += deltaPhase
-		s := math.Sin(vt.phase) * vol * 0.5
-		if vt.channel == 0 {
-			samples[i][0] += s
+		t := float64(bs.pos) / sr
+		freq, beat, toneVol, noiseVol := bs.params(t)
+
+		bs.phaseL = math.Mod(bs.phaseL+2*math.Pi*freq/sr, 2*math.Pi)
+		bs.phaseR = math.Mod(bs.phaseR+2*math.Pi*(freq+beat)/sr, 2*math.Pi)
+
+		// The noise generator always advances so its state is independent of volume.
+		noise := bs.noise.nextSample()
+		if noiseVol <= 0 {
+			noise = 0
 		} else {
-			samples[i][1] += s
+			noise *= noiseVol * 0.5
 		}
-		vt.pos++
+
+		samples[i][0] = math.Sin(bs.phaseL)*toneVol*0.5 + noise
+		samples[i][1] = math.Sin(bs.phaseR)*toneVol*0.5 + noise
+		bs.pos++
 	}
 	return len(samples), true
 }
 
-func (vt *VariableTone) Err() error { return nil }
-
-// PinkNoiseControl controls the pink noise based on time.
-type PinkNoiseControl struct {
-	stream     beep.Streamer
-	volumeFunc func(t float64) float64
-	sr         beep.SampleRate
-	pos        int
-}
-
-func (pnc *PinkNoiseControl) Stream(samples [][2]float64) (n int, ok bool) {
-	n, ok = pnc.stream.Stream(samples)
-	for i := range samples[:n] {
-		t := float64(pnc.pos) / float64(pnc.sr)
-		vol := pnc.volumeFunc(t)
-		if vol <= 0 {
-			samples[i][0] = 0
-			samples[i][1] = 0
-		} else {
-			s := samples[i][0] * vol * 0.5
-			samples[i][0] = s
-			samples[i][1] = s
-		}
-		pnc.pos++
-	}
-	return n, ok
-}
-
-func (pnc *PinkNoiseControl) Err() error { return pnc.stream.Err() }
+func (bs *BinauralStream) Err() error { return nil }
 
 // ParseConfig reads and parses a YAML configuration file.
 func ParseConfig(filename string) (*Config, error) {
@@ -217,33 +222,12 @@ func GetTotalPlaybackTime(changes []FrequencyChange) float64 {
 	return maxTime
 }
 
-// createMixer creates the audio mixer from the current config state.
+// createMixer creates the audio stream from the current config state.
 func (e *Engine) createMixer() (beep.Streamer, beep.SampleRate) {
 	sr := beep.SampleRate(44100)
-
-	leftTone := &VariableTone{
-		sr:         sr,
-		freqFunc:   e.baseFreqFunc,
-		volumeFunc: e.volumeFunc,
-		channel:    0,
-	}
-	rightTone := &VariableTone{
-		sr:         sr,
-		freqFunc:   func(t float64) float64 { return e.baseFreqFunc(t) + e.beatFreqFunc(t) },
-		volumeFunc: e.volumeFunc,
-		channel:    1,
-	}
-	pinkNoiseControl := &PinkNoiseControl{
-		stream:     NewPinkNoise(),
-		volumeFunc: e.pinkNoiseFunc,
-		sr:         sr,
-	}
-
-	mixed := &beep.Mixer{}
-	mixed.Add(leftTone, rightTone, pinkNoiseControl)
-
+	stream := NewBinauralStream(sr, e.changes, NewPinkNoise())
 	totalSamples := sr.N(time.Duration(e.totalDuration * float64(time.Second)))
-	return beep.Take(totalSamples, mixed), sr
+	return beep.Take(totalSamples, stream), sr
 }
 
 // Engine manages the audio generation and playback lifecycle.
@@ -258,7 +242,9 @@ type Engine struct {
 	beatFreqFunc  func(float64) float64
 	volumeFunc    func(float64) float64
 	pinkNoiseFunc func(float64) float64
+	changes       []FrequencyChange
 	totalDuration float64
+	playID        uint64
 }
 
 func NewEngine() *Engine {
@@ -296,6 +282,7 @@ func (e *Engine) applyStretch() {
 	e.beatFreqFunc = CreateBeatFreqFunc(changes)
 	e.volumeFunc = CreateVolumeFunc(changes)
 	e.pinkNoiseFunc = CreatePinkNoiseFunc(changes)
+	e.changes = changes
 	e.totalDuration = GetTotalPlaybackTime(changes)
 }
 
