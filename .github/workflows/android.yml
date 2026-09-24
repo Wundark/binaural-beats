@@ -26,6 +26,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The default ("tools platform-tools") fails: the obsolete "tools"
+          # package is no longer published in Google's SDK repository.
+          packages: platform-tools
 
       - name: Install Android NDK
         run: |
@@ -37,43 +41,53 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi
 
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "tauri-app/src-tauri -> target"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-
-      - name: Cache Tauri CLI
-        id: cache-tauri
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/cargo-tauri
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
-          key: tauri-cli-${{ runner.os }}-${{ hashFiles('tauri-app/src-tauri/Cargo.toml') }}
-          restore-keys: |
-            tauri-cli-${{ runner.os }}-
-
-      - name: Install Tauri CLI
-        if: steps.cache-tauri.outputs.cache-hit != 'true'
-        run: cargo install tauri-cli
+          cache: "npm"
+          cache-dependency-path: tauri-app/package-lock.json
 
       - name: Build Go shared libraries for Android
         run: ./scripts/build-android-lib.sh
 
       - name: Install frontend dependencies
         working-directory: tauri-app
-        run: npm install
+        run: npm ci
 
+      # Only arm64 and armv7 have Go engine libraries.
       - name: Build Android APK
         working-directory: tauri-app
-        run: cargo tauri android build --apk
+        run: npx tauri android build --apk --target aarch64 --target armv7
         env:
           NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+
+      # Set the ANDROID_KEYSTORE_* secrets to sign releases with a stable key;
+      # without them the APK is signed with a throwaway key.
+      - name: Sign APK
+        run: |
+          APK="binaural-beats-${GITHUB_REF_NAME//\//-}.apk"
+          ./scripts/sign-apk.sh \
+            tauri-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
+            "$APK"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: ${{ env.APK }}
 
       - name: Upload APK to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            tauri-app/src-tauri/gen/android/app/build/outputs/apk/release/*.apk
-            tauri-app/src-tauri/gen/android/app/build/outputs/apk/debug/*.apk
+          files: ${{ env.APK }}
