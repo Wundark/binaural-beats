@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
   actions: read
 
 jobs:
@@ -25,6 +24,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          cache: true
 
       - name: Install ALSA dev headers
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
@@ -55,6 +55,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          cache: true
 
       - uses: actions/setup-java@v4
         with:
@@ -63,6 +64,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The default ("tools platform-tools") fails: the obsolete "tools"
+          # package is no longer published in Google's SDK repository.
+          packages: platform-tools
 
       - name: Install Android NDK
         run: |
@@ -74,32 +79,45 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi
 
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "tauri-app/src-tauri -> target"
+          cache-targets: "true"
+          key: android-aarch64
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli
+          cache: "npm"
+          cache-dependency-path: tauri-app/package-lock.json
 
       - name: Build Go shared libraries for Android
         run: ./scripts/build-android-lib.sh
 
       - name: Install frontend dependencies
         working-directory: tauri-app
-        run: npm install
+        run: npm ci
 
+      # Only arm64 and armv7 have Go engine libraries.
       - name: Build Android APK
         working-directory: tauri-app
-        run: cargo tauri android build --apk
+        run: npx tauri android build --apk --target aarch64 --target armv7
         env:
           NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+
+      # PR builds never get the release keystore; sign-apk.sh uses a throwaway key.
+      - name: Sign APK
+        run: |
+          ./scripts/sign-apk.sh \
+            tauri-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
+            binaural-beats-pr-${{ github.event.pull_request.number }}.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: pr-${{ github.event.pull_request.number }}-android-apk
-          path: |
-            tauri-app/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: binaural-beats-pr-${{ github.event.pull_request.number }}.apk
           retention-days: 14
 
   # ── Owner PRs: post comment after both builds complete ──
@@ -108,6 +126,8 @@ jobs:
     # Run even if android build fails so we still get the desktop comment
     if: always() && github.event.pull_request.user.login == 'Wundark'
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
@@ -141,6 +161,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          # No caches for untrusted code: pull_request_target cache writes land
+          # in the base branch scope and could poison trusted builds.
+          cache: false
 
       - name: Install ALSA dev headers
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
@@ -172,6 +195,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          # No caches for untrusted code: pull_request_target cache writes land
+          # in the base branch scope and could poison trusted builds.
+          cache: false
 
       - uses: actions/setup-java@v4
         with:
@@ -180,6 +206,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The default ("tools platform-tools") fails: the obsolete "tools"
+          # package is no longer published in Google's SDK repository.
+          packages: platform-tools
 
       - name: Install Android NDK
         run: |
@@ -195,28 +225,32 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli
-
       - name: Build Go shared libraries for Android
         run: ./scripts/build-android-lib.sh
 
       - name: Install frontend dependencies
         working-directory: tauri-app
-        run: npm install
+        run: npm ci
 
+      # Only arm64 and armv7 have Go engine libraries.
       - name: Build Android APK
         working-directory: tauri-app
-        run: cargo tauri android build --apk
+        run: npx tauri android build --apk --target aarch64 --target armv7
         env:
           NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+
+      # PR builds never get the release keystore; sign-apk.sh uses a throwaway key.
+      - name: Sign APK
+        run: |
+          ./scripts/sign-apk.sh \
+            tauri-app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
+            binaural-beats-pr-${{ github.event.pull_request.number }}.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: pr-${{ github.event.pull_request.number }}-android-apk
-          path: |
-            tauri-app/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: binaural-beats-pr-${{ github.event.pull_request.number }}.apk
           retention-days: 14
 
   # ── External contributor PRs: post comment after both builds ──
@@ -224,6 +258,8 @@ jobs:
     if: always() && github.event.pull_request.user.login != 'Wundark'
     needs: [build-external, build-external-android]
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2

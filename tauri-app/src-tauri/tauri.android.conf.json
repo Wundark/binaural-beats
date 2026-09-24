@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "icon": [],
+    "externalBin": []
+  },
+  "plugins": {
+    "shell": {
+      "sidecar": false,
+      "scope": []
+    }
+  }
+}

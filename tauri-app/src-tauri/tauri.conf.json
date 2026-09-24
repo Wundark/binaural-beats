@@ -8,7 +8,7 @@
     "devUrl": "http://localhost:1420"
   },
   "app": {
-    "title": "Binaural Beats",
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Binaural Beats",

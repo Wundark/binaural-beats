@@ -47,7 +47,6 @@ build_arch() {
     local goarch="$1"
     local cc="$2"
     local jni_dir="$3"
-    local arch_sysroot="$4"
 
     local output_dir="$PROJECT_ROOT/tauri-app/src-tauri/gen/android/app/src/main/jniLibs/$jni_dir"
     mkdir -p "$output_dir"
@@ -63,8 +62,8 @@ build_arch() {
     GOARCH="$goarch" \
     CC="$cc_path" \
     CXX="$cc_path++" \
-    CGO_CFLAGS="--sysroot=$sysroot -D__ANDROID_API__=$MIN_SDK" \
-    CGO_CXXFLAGS="--sysroot=$sysroot -D__ANDROID_API__=$MIN_SDK" \
+    CGO_CFLAGS="--sysroot=$sysroot" \
+    CGO_CXXFLAGS="--sysroot=$sysroot" \
     CGO_LDFLAGS="--sysroot=$sysroot -llog -landroid" \
     go build -buildmode=c-shared -mod=vendor \
         -ldflags="-s -w" \
