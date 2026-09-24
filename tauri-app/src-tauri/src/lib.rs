@@ -170,7 +170,12 @@ impl Backend {
 // ─── Tauri commands ───
 
 #[tauri::command]
-async fn load_config(state: tauri::State<'_, BackendState>, path: String) -> Result<String, String> {
+async fn load_config(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BackendState>,
+    path: String,
+) -> Result<String, String> {
+    let path = engine_readable_path(&app, path)?;
     let mut guard = state.lock().await;
     guard
         .call("load_config", Some(serde_json::json!({ "path": path })))
@@ -200,12 +205,85 @@ async fn get_status(state: tauri::State<'_, BackendState>) -> Result<PlaybackSta
 }
 
 #[tauri::command]
-async fn export_wav(state: tauri::State<'_, BackendState>, path: String) -> Result<String, String> {
+async fn export_wav(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BackendState>,
+    path: String,
+) -> Result<String, String> {
+    let engine_path = engine_writable_path(&app, &path)?;
     let mut guard = state.lock().await;
     guard
-        .call("export_wav", Some(serde_json::json!({ "path": path })))
+        .call("export_wav", Some(serde_json::json!({ "path": engine_path })))
         .await?;
+    drop(guard);
+    publish_export(&app, &engine_path, &path)?;
     Ok("Export complete".to_string())
+}
+
+// ─── File access ───
+//
+// On Android the dialog plugin returns content:// URIs, which the Go engine
+// cannot open. Stage files through the app cache directory, using the fs
+// plugin to read from and write to the URIs.
+
+#[cfg(target_os = "android")]
+fn cache_file(app: &tauri::AppHandle, name: &str) -> Result<String, String> {
+    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create cache dir: {}", e))?;
+    Ok(dir.join(name).to_string_lossy().into_owned())
+}
+
+#[cfg(target_os = "android")]
+fn engine_readable_path(app: &tauri::AppHandle, path: String) -> Result<String, String> {
+    use std::str::FromStr;
+    use tauri_plugin_fs::{FilePath, FsExt};
+
+    let source = FilePath::from_str(&path).map_err(|e| e.to_string())?;
+    let data = app
+        .fs()
+        .read(source)
+        .map_err(|e| format!("Failed to read config: {}", e))?;
+    let staged = cache_file(app, "config.yaml")?;
+    std::fs::write(&staged, data).map_err(|e| format!("Failed to stage config: {}", e))?;
+    Ok(staged)
+}
+
+#[cfg(not(target_os = "android"))]
+fn engine_readable_path(_app: &tauri::AppHandle, path: String) -> Result<String, String> {
+    Ok(path)
+}
+
+#[cfg(target_os = "android")]
+fn engine_writable_path(app: &tauri::AppHandle, _path: &str) -> Result<String, String> {
+    cache_file(app, "export.wav")
+}
+
+#[cfg(not(target_os = "android"))]
+fn engine_writable_path(_app: &tauri::AppHandle, path: &str) -> Result<String, String> {
+    Ok(path.to_string())
+}
+
+#[cfg(target_os = "android")]
+fn publish_export(app: &tauri::AppHandle, staged: &str, dest: &str) -> Result<(), String> {
+    use std::str::FromStr;
+    use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
+
+    let result = (|| -> std::io::Result<()> {
+        let mut src = std::fs::File::open(staged)?;
+        let mut opts = OpenOptions::new();
+        opts.read(false).write(true).truncate(true).create(true);
+        let target = FilePath::from_str(dest).map_err(std::io::Error::other)?;
+        let mut out = app.fs().open(target, opts)?;
+        std::io::copy(&mut src, &mut out)?;
+        Ok(())
+    })();
+    let _ = std::fs::remove_file(staged);
+    result.map_err(|e| format!("Failed to save WAV: {}", e))
+}
+
+#[cfg(not(target_os = "android"))]
+fn publish_export(_app: &tauri::AppHandle, _staged: &str, _dest: &str) -> Result<(), String> {
+    Ok(())
 }
 
 #[tauri::command]
@@ -264,6 +342,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup({
             let state = backend_state.clone();
             move |app| {

@@ -1,6 +1,10 @@
 const { invoke } = window.__TAURI__.core;
 const { open, save } = window.__TAURI__.dialog;
 
+// Android maps dialog filters to MIME types, and .yaml usually has none, so a
+// filter there would hide every config file.
+const isAndroid = /android/i.test(navigator.userAgent);
+
 // DOM elements
 const btnLoad = document.getElementById("btn-load");
 const btnPlay = document.getElementById("btn-play");
@@ -89,7 +93,7 @@ function startPolling() {
 btnLoad.addEventListener("click", async () => {
   try {
     const path = await open({
-      filters: [{ name: "YAML Config", extensions: ["yaml", "yml"] }],
+      filters: isAndroid ? [] : [{ name: "YAML Config", extensions: ["yaml", "yml"] }],
       multiple: false,
     });
     if (!path) return;
