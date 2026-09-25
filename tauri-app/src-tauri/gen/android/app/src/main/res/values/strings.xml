@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">Binaural Beats</string>
     <string name="main_activity_title">Binaural Beats</string>
+    <string name="playback_channel">Playback</string>
+    <string name="playback_playing">Playing</string>
+    <string name="playback_paused">Paused</string>
 </resources>
