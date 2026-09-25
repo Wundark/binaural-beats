@@ -1,3 +1,6 @@
+name: Lucid Dream
+description: >-
+  30 minutes. The beat moves from 10 Hz (alpha) down to 3 Hz (delta), then back up through 5 Hz and 8 Hz (theta), then fades out.
 frequency_changes:
   - time: 0
     frequency: 300.0
@@ -48,7 +51,7 @@ frequency_changes:
     tone_volume: 0.9
 
   - time: 1800
-    frequency: 0.0
-    beat_frequency: 0.0
+    frequency: 150.0
+    beat_frequency: 8.0
     pink_noise_volume: 0.0
     tone_volume: 0.0

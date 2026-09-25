@@ -1,3 +1,6 @@
+name: Insomniac
+description: >-
+  45 minutes. The beat descends from 10 Hz (alpha) through 6 Hz (theta) to 2 Hz (delta) over pink noise, then fades out. Adapted from the SBaGen "Insomniac" session.
 frequency_changes:
   - time: 0
     frequency: 300.0
@@ -30,7 +33,7 @@ frequency_changes:
     pink_noise_volume: 0.05
     tone_volume: 0.2
   - time: 2700                 # End transition to ALLOFF
-    frequency: 0.0
-    beat_frequency: 0.0
+    frequency: 150.0
+    beat_frequency: 2.0
     pink_noise_volume: 0.0
     tone_volume: 0.0

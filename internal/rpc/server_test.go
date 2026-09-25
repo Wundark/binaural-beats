@@ -78,3 +78,23 @@ func TestSeekAndVolumeShowInStatus(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 }
+
+func TestPresets(t *testing.T) {
+	eng := engine.NewEngine()
+	r := call(t, eng, `{"jsonrpc":"2.0","method":"list_presets","id":1}`)
+	var list []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if r.Error != nil || json.Unmarshal(r.Result, &list) != nil || len(list) == 0 {
+		t.Fatalf("list_presets: %+v %s", r.Error, r.Result)
+	}
+	r = call(t, eng, `{"jsonrpc":"2.0","method":"load_preset","params":{"id":"`+list[0].ID+`"},"id":2}`)
+	var info engine.SessionInfo
+	if r.Error != nil || json.Unmarshal(r.Result, &info) != nil || info.Name != list[0].Name || info.TotalDuration <= 0 {
+		t.Fatalf("load_preset: %+v %s", r.Error, r.Result)
+	}
+	if r := call(t, eng, `{"jsonrpc":"2.0","method":"load_preset","params":{"id":"nope"},"id":3}`); r.Error == nil {
+		t.Fatal("unknown preset should fail")
+	}
+}

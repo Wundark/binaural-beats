@@ -8,7 +8,9 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,11 +18,22 @@ import (
 	"github.com/gopxl/beep"
 	"github.com/gopxl/beep/wav"
 	"gopkg.in/yaml.v3"
+
+	"github.com/Wundark/binaural-beats/internal/sbagen"
 )
 
 // Config represents the structure of the YAML configuration file.
 type Config struct {
+	Name             string            `yaml:"name,omitempty"`
+	Description      string            `yaml:"description,omitempty"`
 	FrequencyChanges []FrequencyChange `yaml:"frequency_changes"`
+}
+
+// SessionInfo describes a loaded session.
+type SessionInfo struct {
+	Name          string  `json:"name"`
+	Description   string  `json:"description"`
+	TotalDuration float64 `json:"total_duration"`
 }
 
 // FrequencyChange represents a frequency change event.
@@ -235,19 +248,27 @@ func (bs *BinauralStream) Stream(samples [][2]float64) (n int, ok bool) {
 
 func (bs *BinauralStream) Err() error { return nil }
 
-// ParseConfig reads and parses a YAML configuration file.
+// ParseConfig reads and parses a session file: YAML, or SBaGen (.sbg).
 func ParseConfig(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	var cfg Config
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true) // reject misspelled keys instead of ignoring them
-	if err := dec.Decode(&cfg); err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("config file is empty")
-		}
+	return ParseConfigData(filename, data)
+}
+
+// ParseConfigData parses a session from data. The name's extension selects
+// the format (.yaml/.yml or .sbg); without one, the content decides. A session
+// without a name of its own is named after the file.
+func ParseConfigData(name string, data []byte) (*Config, error) {
+	var cfg *Config
+	var err error
+	if isSbagen(name, data) {
+		cfg, err = parseSbagen(data)
+	} else {
+		cfg, err = parseYAML(data)
+	}
+	if err != nil {
 		return nil, err
 	}
 	// Stable, so entries sharing a time keep their order (an instant change).
@@ -257,7 +278,47 @@ func ParseConfig(filename string) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	if cfg.Name == "" {
+		base := filepath.Base(name)
+		cfg.Name = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	return cfg, nil
+}
+
+func isSbagen(name string, data []byte) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".sbg":
+		return true
+	case ".yaml", ".yml":
+		return false
+	}
+	// Every YAML session has this key; SBaGen files never do.
+	return !bytes.Contains(data, []byte("frequency_changes"))
+}
+
+func parseYAML(data []byte) (*Config, error) {
+	var cfg Config
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true) // reject misspelled keys instead of ignoring them
+	if err := dec.Decode(&cfg); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("config file is empty")
+		}
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+func parseSbagen(data []byte) (*Config, error) {
+	session, err := sbagen.Convert(bytes.NewReader(data), sbagen.DefaultFade)
+	if err != nil {
+		return nil, fmt.Errorf("SBaGen file: %w", err)
+	}
+	cfg := &Config{Name: session.Name, Description: session.Description}
+	for _, c := range session.Changes {
+		cfg.FrequencyChanges = append(cfg.FrequencyChanges, FrequencyChange(c))
+	}
+	return cfg, nil
 }
 
 // Validate checks that the config describes a playable session. It expects
@@ -397,23 +458,41 @@ func NewEngine() *Engine {
 	return &Engine{stretch: 1.0, volume: 1.0}
 }
 
-func (e *Engine) LoadConfig(path string) error {
+// LoadConfig loads a session file (YAML or SBaGen).
+func (e *Engine) LoadConfig(path string) (SessionInfo, error) {
 	cfg, err := ParseConfig(path)
 	if err != nil {
-		return fmt.Errorf("failed to parse config: %w", err)
+		return SessionInfo{}, fmt.Errorf("failed to parse config: %w", err)
 	}
+	return e.load(cfg)
+}
 
+// LoadConfigData loads a session from data; see ParseConfigData.
+func (e *Engine) LoadConfigData(name string, data []byte) (SessionInfo, error) {
+	cfg, err := ParseConfigData(name, data)
+	if err != nil {
+		return SessionInfo{}, fmt.Errorf("failed to parse config: %w", err)
+	}
+	return e.load(cfg)
+}
+
+func (e *Engine) load(cfg *Config) (SessionInfo, error) {
 	e.Mu.Lock()
 	defer e.Mu.Unlock()
 
 	if e.IsPlaying {
-		return fmt.Errorf("cannot load config while playing")
+		return SessionInfo{}, fmt.Errorf("cannot load config while playing")
 	}
 
 	e.config = cfg
 	e.startAt = 0
 	e.applyStretch()
-	return nil
+	return e.sessionInfo(), nil
+}
+
+// sessionInfo describes the loaded session. The caller must hold e.Mu.
+func (e *Engine) sessionInfo() SessionInfo {
+	return SessionInfo{Name: e.config.Name, Description: e.config.Description, TotalDuration: e.totalDuration}
 }
 
 func (e *Engine) applyStretch() {

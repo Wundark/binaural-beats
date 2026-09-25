@@ -69,7 +69,7 @@ archives:
     files:
       - LICENSE
       - README.md
-      - example_config/*
+      - example_config/*.yaml
 
 checksum:
   name_template: "checksums.txt"

@@ -188,13 +188,29 @@ async fn load_config(
     app: tauri::AppHandle,
     state: tauri::State<'_, BackendState>,
     path: String,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
     let path = engine_readable_path(&app, path)?;
     let mut guard = state.lock().await;
     guard
         .call("load_config", Some(serde_json::json!({ "path": path })))
-        .await?;
-    Ok("Config loaded".to_string())
+        .await
+}
+
+#[tauri::command]
+async fn list_presets(state: tauri::State<'_, BackendState>) -> Result<serde_json::Value, String> {
+    state.lock().await.call("list_presets", None).await
+}
+
+#[tauri::command]
+async fn load_preset(
+    state: tauri::State<'_, BackendState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    state
+        .lock()
+        .await
+        .call("load_preset", Some(serde_json::json!({ "id": id })))
+        .await
 }
 
 #[tauri::command]
@@ -290,7 +306,8 @@ fn engine_readable_path(app: &tauri::AppHandle, path: String) -> Result<String, 
         .fs()
         .read(source)
         .map_err(|e| format!("Failed to read config: {}", e))?;
-    let staged = cache_file(app, "config.yaml")?;
+    // No extension: the engine detects YAML or SBaGen from the content.
+    let staged = cache_file(app, "session")?;
     std::fs::write(&staged, data).map_err(|e| format!("Failed to stage config: {}", e))?;
     Ok(staged)
 }
@@ -418,6 +435,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             load_config,
+            list_presets,
+            load_preset,
             play,
             stop,
             pause,

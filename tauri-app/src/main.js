@@ -12,6 +12,9 @@ const btnStop = document.getElementById("btn-stop");
 const btnExport = document.getElementById("btn-export");
 const btnStretch = document.getElementById("btn-stretch");
 const configName = document.getElementById("config-name");
+const sessionDuration = document.getElementById("session-duration");
+const sessionDescription = document.getElementById("session-description");
+const presetList = document.getElementById("preset-list");
 const stretchSlider = document.getElementById("stretch-slider");
 const stretchValue = document.getElementById("stretch-value");
 const volumeSlider = document.getElementById("volume-slider");
@@ -66,6 +69,9 @@ function render(status) {
   btnStop.disabled = !playing;
   btnExport.disabled = !loaded || playing || exporting;
   btnLoad.disabled = playing || exporting;
+  for (const button of presetList.querySelectorAll("button")) {
+    button.disabled = playing || exporting;
+  }
   btnStretch.disabled = playing || exporting;
   stretchSlider.disabled = playing || exporting;
   progressBar.classList.toggle("seekable", loaded);
@@ -94,19 +100,56 @@ async function refresh() {
   return status;
 }
 
-// Load config
+// Session loading
+function showSession(info, presetId = null) {
+  configName.textContent = info.name;
+  sessionDuration.textContent = formatTime(info.total_duration);
+  sessionDescription.textContent = info.description || "";
+  for (const button of presetList.querySelectorAll("button")) {
+    button.classList.toggle("selected", button.dataset.id === presetId);
+  }
+}
+
+async function loadPresets() {
+  const presets = await invoke("list_presets");
+  presetList.replaceChildren(
+    ...presets.map((p) => {
+      const button = document.createElement("button");
+      button.className = "preset";
+      button.dataset.id = p.id;
+      button.title = p.description;
+      const name = document.createElement("span");
+      name.className = "preset-name";
+      name.textContent = p.name;
+      const duration = document.createElement("span");
+      duration.className = "preset-duration";
+      duration.textContent = formatTime(p.total_duration);
+      button.append(name, duration);
+      button.addEventListener("click", () =>
+        run(async () => {
+          showSession(await invoke("load_preset", { id: p.id }), p.id);
+          await refresh();
+        })
+      );
+      return button;
+    })
+  );
+  render(current);
+}
+
 btnLoad.addEventListener("click", () =>
   run(async () => {
     const path = await open({
-      filters: isAndroid ? [] : [{ name: "YAML Config", extensions: ["yaml", "yml"] }],
+      filters: isAndroid
+        ? []
+        : [{ name: "Sessions (YAML, SBaGen)", extensions: ["yaml", "yml", "sbg"] }],
       multiple: false,
     });
     if (!path) return;
 
-    await invoke("load_config", { path });
-    configName.textContent = decodeURIComponent(path.split(/[/\\]/).pop());
+    showSession(await invoke("load_config", { path }));
     await refresh();
-    showMessage("Config loaded successfully");
+    showMessage("Session loaded");
   })
 );
 
@@ -204,6 +247,7 @@ document.addEventListener("keydown", (event) => {
       const status = await refresh();
       volumeSlider.value = Math.round(status.volume * 100);
       volumeValue.textContent = `${volumeSlider.value}%`;
+      await loadPresets();
       return;
     } catch (e) {
       await new Promise((r) => setTimeout(r, 250));

@@ -14,10 +14,17 @@
     </header>
 
     <section class="config-section">
-      <h2>Configuration</h2>
+      <h2>Session</h2>
+      <div class="session-info">
+        <div class="session-header">
+          <span id="config-name" class="config-name">No session loaded</span>
+          <span id="session-duration" class="session-duration"></span>
+        </div>
+        <p id="session-description" class="session-description">Pick a session from the library or open a YAML or SBaGen (.sbg) file.</p>
+      </div>
+      <div id="preset-list" class="preset-list"></div>
       <div class="config-controls">
-        <button id="btn-load" class="btn btn-primary">Load Config</button>
-        <span id="config-name" class="config-name">No config loaded</span>
+        <button id="btn-load" class="btn btn-secondary">Open File&hellip;</button>
       </div>
     </section>
 

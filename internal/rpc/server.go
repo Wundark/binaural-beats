@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/Wundark/binaural-beats/internal/engine"
+	"github.com/Wundark/binaural-beats/internal/presets"
 )
 
 // JSON-RPC 2.0 request/response types.
@@ -33,6 +34,10 @@ type RPCError struct {
 
 type LoadConfigParams struct {
 	Path string `json:"path"`
+}
+
+type LoadPresetParams struct {
+	ID string `json:"id"`
 }
 
 type ExportWAVParams struct {
@@ -114,11 +119,33 @@ func handleRequest(eng *engine.Engine, req Request) Response {
 			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
 			return resp
 		}
-		if err := eng.LoadConfig(params.Path); err != nil {
+		info, err := eng.LoadConfig(params.Path)
+		if err != nil {
 			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
 			return resp
 		}
-		resp.Result = map[string]interface{}{"ok": true}
+		resp.Result = info
+
+	case "list_presets":
+		list, err := presets.List()
+		if err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = list
+
+	case "load_preset":
+		var params LoadPresetParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
+			return resp
+		}
+		info, err := presets.Load(eng, params.ID)
+		if err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = info
 
 	case "play":
 		if err := eng.Play(); err != nil {

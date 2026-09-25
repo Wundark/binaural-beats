@@ -140,7 +140,7 @@ func TestEngineSeekAndVolumeWhileStopped(t *testing.T) {
 	if err := e.Seek(10); err == nil {
 		t.Fatal("seek without a config should fail")
 	}
-	if err := e.LoadConfig(writeConfig(t, `frequency_changes:
+	if _, err := e.LoadConfig(writeConfig(t, `frequency_changes:
   - time: 0
     frequency: 100
     beat_frequency: 4

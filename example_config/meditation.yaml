@@ -1,0 +1,30 @@
+name: Meditation
+description: >-
+  30 minutes. The beat glides from 10 Hz (alpha) to 6 Hz (theta) over the first
+  10 minutes, holds at 6 Hz, then fades out over the last 2 minutes.
+frequency_changes:
+  - time: 0                    # fade in
+    frequency: 200.0
+    beat_frequency: 10.0
+    pink_noise_volume: 0.0
+    tone_volume: 0.0
+  - time: 30
+    frequency: 200.0
+    beat_frequency: 10.0
+    pink_noise_volume: 0.2
+    tone_volume: 0.5
+  - time: 600                  # reach 6 Hz
+    frequency: 200.0
+    beat_frequency: 6.0
+    pink_noise_volume: 0.2
+    tone_volume: 0.5
+  - time: 1680                 # hold, then fade out
+    frequency: 200.0
+    beat_frequency: 6.0
+    pink_noise_volume: 0.2
+    tone_volume: 0.5
+  - time: 1800
+    frequency: 200.0
+    beat_frequency: 6.0
+    pink_noise_volume: 0.0
+    tone_volume: 0.0
