@@ -4,7 +4,11 @@
 
 Go-based application that generates binaural beats with optional pink noise. It allows for customized audio sessions by specifying various parameters such as base frequency, beat frequency, volume levels, and pink noise settings over time through a YAML configuration file.
 
-Binaural beats are auditory illusions perceived when two slightly different frequencies are presented to each ear separately. They are believed to influence brainwave patterns and can aid in relaxation, meditation, sleep, and focus.
+Binaural beats are auditory illusions perceived when two slightly different frequencies are presented to each ear separately. They are believed to influence brainwave patterns and can aid in relaxation, meditation, sleep, and focus. Use headphones: each ear needs its own tone.
+
+It comes as an app for Windows, macOS, Linux and Android, and as command-line tools. See [Downloads](#downloads).
+
+![The app playing the Meditation session, with its timeline of beat frequency over the brainwave bands](docs/screenshot.png)
 
 ---
 
@@ -15,7 +19,10 @@ Binaural beats are auditory illusions perceived when two slightly different freq
 - **Pink Noise Integration**: Optionally include pink noise in your audio sessions.
 - **Time-Based Configuration**: Specify frequency and volume changes at specific times.
 - **Smooth Transitions**: Linear interpolation between frequency and volume changes for seamless transitions.
-- **Command-Line Interface**: Run the application from the command line with a specified configuration file.
+- **Apps for desktop and Android**: A built-in session library, a timeline of the session with click-to-seek, and pause, resume and volume control. On Android, sessions keep playing with the screen off.
+- **SBaGen Support**: Open SBaGen (`.sbg`) session files directly, or convert them to YAML.
+- **WAV Export**: Render a whole session to a WAV file.
+- **Command-Line Interface**: Play or export sessions from the command line, including the built-in presets.
 
 ---
 
