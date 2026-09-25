@@ -23,7 +23,8 @@ Binaural beats are auditory illusions perceived when two slightly different freq
 
 ### **Prerequisites**
 
-- **Go Programming Language**: Version 1.20 or higher is recommended.
+- **Go Programming Language**: Version 1.25 or higher.
+- **Linux audio**: PulseAudio or PipeWire (most desktops), or ALSA. No build-time audio libraries or CGO are needed.
 
 ### **Clone the Repository**
 
@@ -190,7 +191,7 @@ This example replicates the ["Insomniac" file](https://github.com/brainbang/sbag
 
 Pre-built binaries for all platforms are available on the [GitHub Releases](https://github.com/Wundark/binaural-beats/releases) page:
 
-- **Linux**: amd64, arm64, armv7
+- **Linux**: amd64, arm64, armv7 (plays through PulseAudio or PipeWire, falling back to ALSA)
 - **macOS**: Intel (amd64) and Apple Silicon (arm64)
 - **Windows**: amd64
 - **Android**: APK (arm64, armv7)
@@ -207,15 +208,13 @@ On desktop it runs the Go audio engine as a sidecar process (`binaural-engine`, 
 
 - [Node.js](https://nodejs.org/) 20+
 - [Rust](https://rustup.rs/) (stable)
-- Go 1.20+
+- Go 1.25+
 - Platform dependencies for Tauri: see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
-- Linux: ALSA headers (`libasound2-dev`) for real-time playback
 
 ### **Build and Run**
 
 ```bash
 # Build the Go engine sidecar for your platform
-# (on Linux, cross-compiled sidecars cannot play audio, only export WAVs)
 ./scripts/build-sidecar.sh
 
 # Install frontend dependencies and launch dev mode
@@ -237,7 +236,7 @@ npm run tauri build
 
 ### **Prerequisites**
 
-- Go 1.20+
+- Go 1.25+
 - Android SDK + NDK 25.x (set `ANDROID_HOME`, and `ANDROID_NDK_HOME`/`NDK_HOME` to the NDK)
 - Rust with Android targets: `rustup target add aarch64-linux-android armv7-linux-androideabi`
 - Java 17+

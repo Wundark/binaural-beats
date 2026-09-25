@@ -25,8 +25,7 @@
 #include "oboe_oboe_ResultWithValue_android.h"
 #include "oboe_oboe_AudioStreamBuilder_android.h"
 #include "oboe_oboe_AudioStreamBase_android.h"
-
-/** WARNING - UNDER CONSTRUCTION - THIS API WILL CHANGE. */
+#include "oboe_oboe_Utilities_android.h"
 
 namespace oboe {
 
@@ -54,7 +53,7 @@ public:
      */
     explicit AudioStream(const AudioStreamBuilder &builder);
 
-    virtual ~AudioStream() = default;
+    virtual ~AudioStream();
 
     /**
      * Open a stream based on the current settings.
@@ -66,6 +65,29 @@ public:
      */
     virtual Result open() {
         return Result::OK; // Called by subclasses. Might do more in the future.
+    }
+
+    /**
+     * Free the audio resources associated with a stream created by AAudioStreamBuilder_openStream().
+     *
+     * AAudioStream_close() should be called at some point after calling this function.
+     *
+     * After this call, the stream will be in AAUDIO_STREAM_STATE_CLOSING
+     *
+     * This function is useful if you want to release the audio resources immediately, but still allow
+     * queries to the stream to occur from other threads. This often happens if you are monitoring
+     * stream progress from a UI thread.
+     *
+     * NOTE: This function is only fully implemented for MMAP streams, which are low latency streams
+     * supported by some devices. On other "Legacy" streams some audio resources will still be in use
+     * and some callbacks may still be in process after this call.
+     *
+     * Available in AAudio since API level 30. Returns Result::ErrorUnimplemented otherwise.
+     *
+     * * @return either Result::OK or an error.
+     */
+    virtual Result release() {
+        return Result::ErrorUnimplemented;
     }
 
     /**
@@ -171,6 +193,13 @@ public:
     *
     * This cannot be set higher than getBufferCapacity().
     *
+    * This should only be used with Output streams. It will
+    * be ignored for Input streams because they are generally kept as empty as possible.
+    *
+    * For OpenSL ES, this method only has an effect on output stream that do NOT
+    * use a callback. The blocking writes goes into a buffer in Oboe and the size of that
+    * buffer is controlled by this method.
+    *
     * @param requestedFrames requested number of frames that can be filled without blocking
     * @return the resulting buffer size in frames (obtained using value()) or an error (obtained
     * using error())
@@ -214,13 +243,19 @@ public:
      * and the sample format. For example, a 2 channel floating point stream will have
      * 2 * 4 = 8 bytes per frame.
      *
+     * Note for compressed formats, bytes per frames is treated as 1 by convention.
+     *
      * @return number of bytes in each audio frame.
      */
-    int32_t getBytesPerFrame() const { return mChannelCount * getBytesPerSample(); }
+    int32_t getBytesPerFrame() const {
+        return isCompressedFormat(mFormat) ? 1 : mChannelCount * getBytesPerSample(); }
 
     /**
      * Get the number of bytes per sample. This is calculated using the sample format. For example,
      * a stream using 16-bit integer samples will have 2 bytes per sample.
+     *
+     * Note for compressed formats, they may not have a fixed bytes per sample. In that case,
+     * this method will return 0 for compressed format.
      *
      * @return the number of bytes per sample.
      */
@@ -264,7 +299,7 @@ public:
      *
      * Note that due to issues in Android before R, we recommend NOT calling
      * this method from a data callback. See this tech note for more details.
-     * https://github.com/google/oboe/blob/main/docs/notes/rlsbuffer.md
+     * https://github.com/google/oboe/wiki/TechNote_ReleaseBuffer
      *
      * @return a ResultWithValue which has a result of Result::OK and a value containing the latency
      * in milliseconds, or a result of Result::Error*.
@@ -286,7 +321,7 @@ public:
      *
      * Note that due to issues in Android before R, we recommend NOT calling
      * this method from a data callback. See this tech note for more details.
-     * https://github.com/google/oboe/blob/main/docs/notes/rlsbuffer.md
+     * https://github.com/google/oboe/wiki/TechNote_ReleaseBuffer
      *
      * @deprecated since 1.0, use AudioStream::getTimestamp(clockid_t clockId) instead, which
      * returns ResultWithValue
@@ -313,7 +348,7 @@ public:
      *
      * Note that due to issues in Android before R, we recommend NOT calling
      * this method from a data callback. See this tech note for more details.
-     * https://github.com/google/oboe/blob/main/docs/notes/rlsbuffer.md
+     * https://github.com/google/oboe/wiki/TechNote_ReleaseBuffer
      *
      * See 
      * @param clockId the type of clock to use e.g. CLOCK_MONOTONIC
@@ -413,6 +448,20 @@ public:
     }
 
     /*
+     * Swap old partial data callback for new callback.
+     * This not atomic.
+     * This should only be used internally.
+     * @param dataCallback
+     * @return previous dataCallback
+     */
+    AudioStreamPartialDataCallback *swapPartialDataCallback(
+            AudioStreamPartialDataCallback *partialDataCallback) {
+        AudioStreamPartialDataCallback *previousPartialCallback = mPartialDataCallback;
+        mPartialDataCallback = partialDataCallback;
+        return previousPartialCallback;
+    }
+
+    /*
      * Swap old callback for new callback.
      * This not atomic.
      * This should only be used internally.
@@ -435,7 +484,12 @@ public:
      * This can be used with an EXCLUSIVE MMAP input stream to avoid reading data too close to
      * the DSP write position, which may cause glitches.
      *
-     * @param numFrames minimum frames available
+     * Starting with Oboe 1.7.1, the numFrames will be clipped internally against the
+     * BufferCapacity minus BurstSize. This is to prevent trying to wait for more frames
+     * than could possibly be available. In this case, the return value may be less than numFrames.
+     * Note that there may still be glitching if numFrames is too high.
+     *
+     * @param numFrames requested minimum frames available
      * @param timeoutNanoseconds
      * @return number of frames available, ErrorTimeout
      */
@@ -470,6 +524,259 @@ public:
      */
     void setDelayBeforeCloseMillis(int32_t delayBeforeCloseMillis) {
         mDelayBeforeCloseMillis = delayBeforeCloseMillis;
+    }
+
+    /**
+     * Enable or disable a device specific CPU performance hint.
+     * Runtime benchmarks such as the callback duration may be used to
+     * speed up the CPU and improve real-time performance.
+     *
+     * Note that this feature is device specific and may not be implemented.
+     * Also the benefits may vary by device.
+     *
+     * The flag will be checked in the Oboe data callback. If it transitions from false to true
+     * then the PerformanceHint feature will be started.
+     * This only needs to be called once for each stream.
+     *
+     * You may want to enable this if you have a dynamically changing workload
+     * and you notice that you are getting under-runs and glitches when your workload increases.
+     * This might happen, for example, if you suddenly go from playing one note to
+     * ten notes on a synthesizer.
+     *
+     * Try the "CPU Load" test in OboeTester if you would like to experiment with this interactively.
+     *
+     * On some devices, this may be implemented using the "ADPF" library.
+     *
+     * @param enabled true if you would like a performance boost, default is false
+     */
+    void setPerformanceHintEnabled(bool enabled) {
+        mPerformanceHintEnabled = enabled;
+    }
+
+    /**
+     * This only tells you if the feature has been requested.
+     * It does not tell you if the PerformanceHint feature is implemented or active on the device.
+     *
+     * @return true if set using setPerformanceHintEnabled().
+     */
+    bool isPerformanceHintEnabled() {
+        return mPerformanceHintEnabled;
+    }
+
+    /**
+     * Use this to give the performance manager more information about your workload.
+     * You can call this at the beginning of the callback when you figure
+     * out what your workload will be.
+     *
+     * Call this if (1) you have called setPerformanceHintEnabled(true), and
+     * (2) you have a varying workload, and
+     * (3) you hear glitches when your workload suddenly increases.
+     *
+     * This might happen when you go from a single note to a big chord on a synthesizer.
+     *
+     * The workload can be in your own units. If you are synthesizing music
+     * then the workload could be the number of active voices.
+     * If your app is a game then it could be the number of sound effects.
+     * The units are arbitrary. They just have to be proportional to
+     * the estimated computational load. For example, if some of your voices take 20%
+     * more computation than a basic voice then assign 6 units to the complex voice
+     * and 5 units to the basic voice.
+     *
+     * The performance hint code can use this as an advance warning that the callback duration
+     * will probably increase. Rather than wait for the long duration and possibly under-run,
+     * we can boost the CPU immediately before we start doing the calculations.
+     *
+     * @param appWorkload workload in application units, such as number of voices
+     * @return OK or an error such as ErrorInvalidState if the PerformanceHint was not enabled.
+     */
+    virtual oboe::Result reportWorkload([[maybe_unused]] int32_t appWorkload) {
+        return oboe::Result::ErrorUnimplemented;
+    }
+
+    /**
+    * Informs the framework of an upcoming increase in the workload of an audio callback
+    * bound to this session. The user can specify whether the increase is expected to be
+    * on the CPU, GPU, or both.
+    *
+    * Sending hints for both CPU and GPU counts as two separate hints for the purposes of the
+    * rate limiter.
+    *
+    * @param cpu Indicates if the workload increase is expected to affect the CPU.
+    * @param gpu Indicates if the workload increase is expected to affect the GPU.
+    * @param debugName A required string used to identify this specific hint during
+    *        tracing. This debug string will only be held for the duration of the
+    *        method, and can be safely discarded after.
+    *
+    * This was introduced in Android API Level 36
+    *
+    * @return Result::OK on success.
+    *         Result::ErrorInvalidState if the PerformanceHint was not enabled.
+    *         Result::ErrorClosed if AdpfWrapper::open() was not called.
+    *         Result::ErrorUnimplemented if the API is not supported.
+    *         Result::ErrorInvalidHandle if no hints were requested.
+    *         Result::ErrorInvalidRate if the hint was rate limited.
+    *         Result::ErrorNoService if communication with the system service has failed.
+    *         Result::ErrorUnavailable if the hint is not supported.
+    */
+    virtual oboe::Result notifyWorkloadIncrease([[maybe_unused]] bool cpu,
+                                                [[maybe_unused]] bool gpu,
+                                                [[maybe_unused]] const char* debugName) {
+        return oboe::Result::ErrorUnimplemented;
+    }
+
+    /**
+    * Informs the framework of an upcoming reset in the workload of an audio callback
+    * bound to this session, or the imminent start of a new workload. The user can specify
+    * whether the reset is expected to affect the CPU, GPU, or both.
+    *
+    * Sending hints for both CPU and GPU counts as two separate hints for the purposes of the
+    * this load tracking.
+    *
+    * @param cpu Indicates if the workload reset is expected to affect the CPU.
+    * @param gpu Indicates if the workload reset is expected to affect the GPU.
+    * @param debugName A required string used to identify this specific hint during
+    *        tracing. This debug string will only be held for the duration of the
+    *        method, and can be safely discarded after.
+    *
+    * This was introduced in Android API Level 36
+    *
+    * @return Result::OK on success.
+    *         Result::ErrorInvalidState if the PerformanceHint was not enabled.
+    *         Result::ErrorClosed if AdpfWrapper::open() was not called.
+    *         Result::ErrorUnimplemented if the API is not supported.
+    *         Result::ErrorInvalidHandle if no hints were requested.
+    *         Result::ErrorInvalidRate if the hint was rate limited.
+    *         Result::ErrorNoService if communication with the system service has failed.
+    *         Result::ErrorUnavailable if the hint is not supported.
+    */
+    virtual oboe::Result notifyWorkloadReset([[maybe_unused]] bool cpu,
+                                             [[maybe_unused]] bool gpu,
+                                             [[maybe_unused]] const char* debugName) {
+        return oboe::Result::ErrorUnimplemented;
+    }
+
+    /**
+    * Informs the framework of an upcoming one-off expensive frame for an audio callback
+    * bound to this session. This frame will be treated as not representative of the workload as a
+    * whole, and it will be discarded the purposes of load tracking. The user can specify
+    * whether the workload spike is expected to be on the CPU, GPU, or both.
+    *
+    * Sending hints for both CPU and GPU counts as two separate hints for the purposes of the
+    * rate limiter.
+    *
+    * This was introduced in Android API Level 36
+    *
+    * @param cpu Indicates if the workload spike is expected to affect the CPU.
+    * @param gpu Indicates if the workload spike is expected to affect the GPU.
+    * @param debugName A required string used to identify this specific hint during
+    *        tracing. This debug string will only be held for the duration of the
+    *        method, and can be safely discarded after.
+    *
+    * @return Result::OK on success.
+    *         Result::ErrorInvalidState if the PerformanceHint was not enabled.
+    *         Result::ErrorClosed if AdpfWrapper::open() was not called.
+    *         Result::ErrorUnimplemented if the API is not supported.
+    *         Result::ErrorInvalidHandle if no hints were requested.
+    *         Result::ErrorInvalidRate if the hint was rate limited.
+    *         Result::ErrorNoService if communication with the system service has failed.
+    *         Result::ErrorUnavailable if the hint is not supported.
+    */
+    virtual oboe::Result notifyWorkloadSpike([[maybe_unused]] bool cpu,
+                                             [[maybe_unused]] bool gpu,
+                                             [[maybe_unused]] const char* debugName) {
+        return oboe::Result::ErrorUnimplemented;
+    }
+
+    virtual oboe::Result setOffloadDelayPadding([[maybe_unused]] int32_t delayInFrames,
+                                                [[maybe_unused]] int32_t paddingInFrames) {
+        return Result::ErrorUnimplemented;
+    }
+
+    virtual ResultWithValue<int32_t> getOffloadDelay() {
+        return ResultWithValue<int32_t>(Result::ErrorUnimplemented);
+    }
+
+    virtual ResultWithValue<int32_t> getOffloadPadding() {
+        return ResultWithValue<int32_t>(Result::ErrorUnimplemented);
+    }
+
+    virtual oboe::Result setOffloadEndOfStream() {
+        return Result::ErrorUnimplemented;
+    }
+
+    /**
+     * Flush all data from given position. If this operation returns successfully, the following
+     * data will be written from the returned position.
+     *
+     * This method will only available when the performance mode is
+     * PerformanceMode::PowerSavingOffloaded.
+     *
+     * The requested position must not be negative or greater than the written frames. The current
+     * written position can be known by querying getFramesWritten().
+     *
+     * When clients request to flush from a certain position, the audio system will return the
+     * actual flushed position based on the requested position, playback latency, etc. The written
+     * position will be updated as the actual flush position. All data after actual flush position
+     * flushed. The client can provide data from actual flush position at next write operation or
+     * data callback request. When the stream is flushed, the stream end will be reset. The client
+     * must not write any data before this function returns. Otherwise, the data will be corrupted.
+     * When the method returns successfully and the stream is active, the client must write data
+     * immediately if little audio data remains. Otherwise, the stream will underrun.
+     *
+     *  This was introduced in Android API Level 37.
+     *
+     * @param accuracy the accuracy requirement when flushing. The value must be one of the valid
+     *                 FlushFromAccuracy value.
+     * @param position the start point in frames to flush the stream.
+     * @return a result which the error code indicates if the stream is successfully flush or not
+     *         and value as the successfully flushed position or suggested flushed position.
+     *         Result::OK if the stream is successfully flushed. The value is the actual flushed
+     *         position.
+     *         Result::ErrorUnimplemented if it is not supported by the device. The value is the
+     *         requested position.
+     *         Result::ErrorIllegalArgument if the stream is not an output offload stream or the
+     *         accuracy is not one of valid FlushFromAccuracy values. The value is the requested
+     *         position.
+     *         Result::ErrorOutOfRange if the provided position is negative or is greater than the
+     *         frames written or the stream cannot flush from the requested position and
+     *         FlushFromAccuracy::Accurate is requested. The value is suggested flushed position.
+     *         Result::ErrorDisconnected if the stream is disconnected. The value is the requested
+     *         position.
+     *         Result::ErrorClosed if the stream is closed. The value is the requested position.
+     */
+    virtual ResultWithValue<int64_t> flushFromFrame(
+            FlushFromAccuracy accuracy, int64_t positionInFrames) {
+        return ResultWithValue<int64_t>(Result::ErrorUnimplemented);
+    }
+
+    /**
+     * Set playback parameters for the given stream.
+     *
+     * This was introduced in Android API Level 37.
+     *
+     * @param parameters a pointer of PlaybackParameters where current playback parameters
+     *                   will be written to on success.
+     * @return Result::OK if the playback parameters are set successfully.
+     *         Result::ErrorIllegalArgument if the given stream is not an output stream or
+     *         the requested parameters are invalid.
+     *         Result::ErrorUnimplemented if the device or the stream doesn't support setting
+     *         playback parameters.
+     *         Result::ErrorInvalidState if the stream is not initialized successfully.
+     */
+    virtual oboe::Result setPlaybackParameters(const PlaybackParameters& parameters) {
+        return Result::ErrorUnimplemented;
+    }
+
+    /**
+     * Get current playback parameters for the given stream.
+     *
+     * This was introduced in Android API Level 37.
+     *
+     * @return a ResultWithValue which has a result of Result::OK and a value containing the
+     * playback parameters, or a result of Result::Error*.
+     */
+    virtual ResultWithValue<PlaybackParameters> getPlaybackParameters() {
+        return ResultWithValue<PlaybackParameters>(Result::ErrorUnimplemented);
     }
 
 protected:
@@ -516,7 +823,16 @@ protected:
      * @return the result of the callback: stop or continue
      *
      */
-    DataCallbackResult fireDataCallback(void *audioData, int numFrames);
+    virtual DataCallbackResult fireDataCallback(void *audioData, int numFrames);
+
+    /**
+     * Override this to provide your own behaviour for the parital audio callback
+     *
+     * @param audioData container array which audio frames will be written into or read from
+     * @param numFrames number of frames which were read/written
+     * @return the actual processed frames
+     */
+    virtual int32_t firePartialDataCallback(void* audioData, int numFrames);
 
     /**
      * @return true if callbacks may be called
@@ -547,6 +863,22 @@ protected:
             usleep(mDelayBeforeCloseMillis * 1000);
         }
     }
+
+    /**
+     * This may be called internally at the beginning of a callback.
+     */
+    virtual void beginPerformanceHintInCallback() {}
+
+    /**
+     * This may be called internally at the end of a callback.
+     * @param numFrames passed to the callback
+     */
+    virtual void endPerformanceHintInCallback(int32_t /*numFrames*/) {}
+
+    /**
+     * This will be called when the stream is closed just in case performance hints were enabled.
+     */
+    virtual void closePerformanceHint() {}
 
     /*
      * Set a weak_ptr to this stream from the shared_ptr so that we can
@@ -594,6 +926,7 @@ protected:
     // Time to sleep in order to prevent a race condition with a callback after a close().
     // Two milliseconds may be enough but 10 msec is even safer.
     static constexpr int kMinDelayBeforeCloseMillis = 10;
+    static constexpr int kMaxDelayBeforeCloseMillis = 100;
     int32_t              mDelayBeforeCloseMillis = kMinDelayBeforeCloseMillis;
 
 private:
@@ -604,6 +937,8 @@ private:
 
     std::atomic<bool>    mDataCallbackEnabled{false};
     std::atomic<bool>    mErrorCallbackCalled{false};
+
+    std::atomic<bool>    mPerformanceHintEnabled{false}; // set only by app
 };
 
 /**

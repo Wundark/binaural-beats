@@ -85,8 +85,16 @@ SLuint32 OpenSLES_ConvertFormatToRepresentation(AudioFormat format) {
             return SL_ANDROID_PCM_REPRESENTATION_FLOAT;
         case AudioFormat::I24:
         case AudioFormat::I32:
+        case AudioFormat::IEC61937:
         case AudioFormat::Invalid:
         case AudioFormat::Unspecified:
+        case AudioFormat::MP3:
+        case AudioFormat::AAC_LC:
+        case AudioFormat::AAC_HE_V1:
+        case AudioFormat::AAC_HE_V2:
+        case AudioFormat::AAC_ELD:
+        case AudioFormat::AAC_XHE:
+        case AudioFormat::OPUS:
         default:
             return 0;
     }

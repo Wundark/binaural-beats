@@ -12,43 +12,63 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"slices"
+	stdstrings "strings"
+	"structs"
 	"unicode"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
+	"github.com/ebitengine/purego/internal/strings"
 )
+
+var hostLayoutType = reflect.TypeFor[structs.HostLayout]()
 
 // TODO: support try/catch?
 // https://stackoverflow.com/questions/7062599/example-of-how-objective-cs-try-catch-implementation-is-executed-at-runtime
 var (
-	objc_msgSend_fn             uintptr
-	objc_msgSend_stret_fn       uintptr
-	objc_msgSend                func(obj ID, cmd SEL, args ...interface{}) ID
-	objc_msgSendSuper2_fn       uintptr
-	objc_msgSendSuper2_stret_fn uintptr
-	objc_msgSendSuper2          func(super *objc_super, cmd SEL, args ...interface{}) ID
-	objc_getClass               func(name string) Class
-	objc_getProtocol            func(name string) *Protocol
-	objc_allocateClassPair      func(super Class, name string, extraBytes uintptr) Class
-	objc_registerClassPair      func(class Class)
-	sel_registerName            func(name string) SEL
-	class_getSuperclass         func(class Class) Class
-	class_getInstanceVariable   func(class Class, name string) Ivar
-	class_getInstanceSize       func(class Class) uintptr
-	class_addMethod             func(class Class, name SEL, imp IMP, types string) bool
-	class_addIvar               func(class Class, name string, size uintptr, alignment uint8, types string) bool
-	class_addProtocol           func(class Class, protocol *Protocol) bool
-	ivar_getOffset              func(ivar Ivar) uintptr
-	ivar_getName                func(ivar Ivar) string
-	object_getClass             func(obj ID) Class
-	object_getIvar              func(obj ID, ivar Ivar) ID
-	object_setIvar              func(obj ID, ivar Ivar, value ID)
-	protocol_getName            func(protocol *Protocol) string
-	protocol_isEqual            func(p *Protocol, p2 *Protocol) bool
+	objc_msgSend_fn                    uintptr
+	objc_msgSend_stret_fn              uintptr
+	objc_msgSend                       func(obj ID, cmd SEL, args ...any) ID
+	objc_msgSendSuper2_fn              uintptr
+	objc_msgSendSuper2_stret_fn        uintptr
+	objc_msgSendSuper2                 func(super *objc_super, cmd SEL, args ...any) ID
+	objc_getClass                      func(name string) Class
+	objc_getProtocol                   func(name string) *Protocol
+	objc_allocateProtocol              func(name string) *Protocol
+	objc_registerProtocol              func(protocol *Protocol)
+	objc_allocateClassPair             func(super Class, name string, extraBytes uintptr) Class
+	objc_registerClassPair             func(class Class)
+	sel_registerName                   func(name string) SEL
+	class_getSuperclass                func(class Class) Class
+	class_getInstanceVariable          func(class Class, name string) Ivar
+	class_getInstanceSize              func(class Class) uintptr
+	class_addMethod                    func(class Class, name SEL, imp IMP, types string) bool
+	class_addIvar                      func(class Class, name string, size uintptr, alignment uint8, types string) bool
+	class_addProtocol                  func(class Class, protocol *Protocol) bool
+	ivar_getOffset                     func(ivar Ivar) uintptr
+	ivar_getName                       func(ivar Ivar) string
+	object_getClass                    func(obj ID) Class
+	object_getIvar                     func(obj ID, ivar Ivar) ID
+	object_setIvar                     func(obj ID, ivar Ivar, value ID)
+	protocol_getName                   func(protocol *Protocol) string
+	protocol_isEqual                   func(p *Protocol, p2 *Protocol) bool
+	protocol_addMethodDescription      func(p *Protocol, name SEL, types string, isRequiredMethod bool, isInstanceMethod bool)
+	protocol_copyMethodDescriptionList func(p *Protocol, isRequiredMethod bool, isInstanceMethod bool, outCount *uint32) *MethodDescription
+	protocol_copyProtocolList          func(p *Protocol, outCount *uint32) **Protocol
+	protocol_copyPropertyList2         func(p *Protocol, outCount *uint32, isRequiredProperty, isInstanceProperty bool) *Property
+	protocol_addProtocol               func(p *Protocol, p2 *Protocol)
+	protocol_addProperty               func(p *Protocol, name string, attributes []PropertyAttribute, attributeCount uint32, isRequiredProperty bool, isInstanceProperty bool)
+	property_getName                   func(p Property) string
+	property_getAttributes             func(p Property) string
+
+	free           func(ptr unsafe.Pointer)
+	_Block_copy    func(Block) Block
+	_Block_release func(Block)
 )
 
 func init() {
-	objc, err := purego.Dlopen("/usr/lib/libobjc.A.dylib", purego.RTLD_GLOBAL)
+	objc, err := purego.Dlopen("/usr/lib/libobjc.A.dylib", purego.RTLD_GLOBAL|purego.RTLD_NOW)
 	if err != nil {
 		panic(fmt.Errorf("objc: %w", err))
 	}
@@ -75,6 +95,8 @@ func init() {
 	purego.RegisterLibFunc(&object_getClass, objc, "object_getClass")
 	purego.RegisterLibFunc(&objc_getClass, objc, "objc_getClass")
 	purego.RegisterLibFunc(&objc_getProtocol, objc, "objc_getProtocol")
+	purego.RegisterLibFunc(&objc_allocateProtocol, objc, "objc_allocateProtocol")
+	purego.RegisterLibFunc(&objc_registerProtocol, objc, "objc_registerProtocol")
 	purego.RegisterLibFunc(&objc_allocateClassPair, objc, "objc_allocateClassPair")
 	purego.RegisterLibFunc(&objc_registerClassPair, objc, "objc_registerClassPair")
 	purego.RegisterLibFunc(&sel_registerName, objc, "sel_registerName")
@@ -88,8 +110,21 @@ func init() {
 	purego.RegisterLibFunc(&ivar_getName, objc, "ivar_getName")
 	purego.RegisterLibFunc(&protocol_getName, objc, "protocol_getName")
 	purego.RegisterLibFunc(&protocol_isEqual, objc, "protocol_isEqual")
+	purego.RegisterLibFunc(&protocol_addMethodDescription, objc, "protocol_addMethodDescription")
+	purego.RegisterLibFunc(&protocol_copyMethodDescriptionList, objc, "protocol_copyMethodDescriptionList")
+	purego.RegisterLibFunc(&protocol_copyProtocolList, objc, "protocol_copyProtocolList")
+	purego.RegisterLibFunc(&protocol_addProtocol, objc, "protocol_addProtocol")
+	purego.RegisterLibFunc(&protocol_addProperty, objc, "protocol_addProperty")
+	purego.RegisterLibFunc(&protocol_copyPropertyList2, objc, "protocol_copyPropertyList2")
+	purego.RegisterLibFunc(&property_getName, objc, "property_getName")
+	purego.RegisterLibFunc(&property_getAttributes, objc, "property_getAttributes")
 	purego.RegisterLibFunc(&object_getIvar, objc, "object_getIvar")
 	purego.RegisterLibFunc(&object_setIvar, objc, "object_setIvar")
+	purego.RegisterLibFunc(&free, purego.RTLD_DEFAULT, "free")
+
+	purego.RegisterLibFunc(&_Block_copy, objc, "_Block_copy")
+	purego.RegisterLibFunc(&_Block_release, objc, "_Block_release")
+	theBlocksCache = newBlockCache()
 }
 
 // ID is an opaque pointer to some Objective-C object
@@ -103,7 +138,7 @@ func (id ID) Class() Class {
 // Send is a convenience method for sending messages to objects. This function takes a SEL
 // instead of a string since RegisterName grabs the global Objective-C lock. It is best to cache the result
 // of RegisterName.
-func (id ID) Send(sel SEL, args ...interface{}) ID {
+func (id ID) Send(sel SEL, args ...any) ID {
 	return objc_msgSend(id, sel, args...)
 }
 
@@ -140,6 +175,7 @@ func Send[T any](id ID, sel SEL, args ...any) T {
 // as the receiver of a message. It specifies the class definition of the particular superclass that should
 // be messaged.
 type objc_super struct {
+	_          structs.HostLayout
 	receiver   ID
 	superClass Class
 }
@@ -147,7 +183,7 @@ type objc_super struct {
 // SendSuper is a convenience method for sending message to object's super. This function takes a SEL
 // instead of a string since RegisterName grabs the global Objective-C lock. It is best to cache the result
 // of RegisterName.
-func (id ID) SendSuper(sel SEL, args ...interface{}) ID {
+func (id ID) SendSuper(sel SEL, args ...any) ID {
 	super := &objc_super{
 		receiver:   id,
 		superClass: id.Class(),
@@ -179,7 +215,7 @@ func SendSuper[T any](id ID, sel SEL, args ...any) T {
 type SEL uintptr
 
 // RegisterName registers a method with the Objective-C runtime system, maps the method name to a selector,
-// and returns the selector value. This function grabs the global Objective-c lock. It is best the cache the
+// and returns the selector value. This function grabs the global Objective-c lock. It is best to cache the
 // result of this function.
 func RegisterName(name string) SEL {
 	return sel_registerName(name)
@@ -191,13 +227,6 @@ type Class uintptr
 // GetClass returns the Class object for the named class, or nil if the class is not registered with the Objective-C runtime.
 func GetClass(name string) Class {
 	return objc_getClass(name)
-}
-
-// AllocateClassPair creates a new class and metaclass. Then returns the new class, or Nil if the class could not be created
-//
-// Deprecated: use RegisterClass instead
-func AllocateClassPair(super Class, name string, extraBytes uintptr) Class {
-	return objc_allocateClassPair(super, name, extraBytes)
 }
 
 // MethodDef represents the Go function and the selector that ObjC uses to access that function.
@@ -214,7 +243,7 @@ type MethodDef struct {
 //
 //	@property (readwrite) float value;
 //
-// In Go, the functions can be accessed as followed:
+// In Go, the functions can be accessed as follows:
 //
 //	var value = purego.Send[float32](id, purego.RegisterName("value"))
 //	id.Send(purego.RegisterName("setValue:"), 3.46)
@@ -297,7 +326,7 @@ func RegisterClass(name string, superClass Class, protocols []*Protocol, ivars [
 		case ReadWrite:
 			ty := reflect.FuncOf(
 				[]reflect.Type{
-					reflect.TypeOf(ID(0)), reflect.TypeOf(SEL(0)), ivar.Type,
+					reflect.TypeFor[ID](), reflect.TypeFor[SEL](), ivar.Type,
 				},
 				nil, false,
 			)
@@ -318,7 +347,10 @@ func RegisterClass(name string, superClass Class, protocols []*Protocol, ivars [
 				//	})(unsafe.Pointer(args[0].Interface().(ID)))).v = 123
 				//
 				// However, since the type of the variable is unknown reflection is used to actually assign the value
-				id := args[0].Interface().(ID)
+				id, ok := reflect.TypeAssert[ID](args[0])
+				if !ok {
+					panic(fmt.Sprintf("objc: id argument is not a ID but %s", args[0].Type().String()))
+				}
 				ptr := *(*unsafe.Pointer)(unsafe.Pointer(&id)) // circumvent go vet
 				reflect.NewAt(ivar.Type, unsafe.Add(ptr, offset)).Elem().Set(args[2])
 				return nil
@@ -330,7 +362,7 @@ func RegisterClass(name string, superClass Class, protocols []*Protocol, ivars [
 		case ReadOnly:
 			ty := reflect.FuncOf(
 				[]reflect.Type{
-					reflect.TypeOf(ID(0)), reflect.TypeOf(SEL(0)),
+					reflect.TypeFor[ID](), reflect.TypeFor[SEL](),
 				},
 				[]reflect.Type{ivar.Type}, false,
 			)
@@ -343,7 +375,10 @@ func RegisterClass(name string, superClass Class, protocols []*Protocol, ivars [
 				if len(args) != 2 {
 					panic(fmt.Sprintf("objc: incorrect number of args. expected 2 got %d", len(args)))
 				}
-				id := args[0].Interface().(ID)
+				id, ok := reflect.TypeAssert[ID](args[0])
+				if !ok {
+					panic(fmt.Sprintf("objc: id argument is not a ID but %s", args[0].Type().String()))
+				}
 				ptr := *(*unsafe.Pointer)(unsafe.Pointer(&id)) // circumvent go vet
 				// the variable is located at an offset from the id
 				return []reflect.Value{reflect.NewAt(ivar.Type, unsafe.Add(ptr, offset)).Elem()}
@@ -371,8 +406,8 @@ const (
 	encUShort      = "S"
 	encInt         = "i"
 	encUInt        = "I"
-	encLong        = "l"
-	encULong       = "L"
+	encLongLong    = "q"
+	encULongLong   = "Q"
 	encFloat       = "f"
 	encDouble      = "d"
 	encBool        = "B"
@@ -388,11 +423,11 @@ const (
 // Source: https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtTypeEncodings.html#//apple_ref/doc/uid/TP40008048-CH100
 func encodeType(typ reflect.Type, insidePtr bool) (string, error) {
 	switch typ {
-	case reflect.TypeOf(Class(0)):
+	case reflect.TypeFor[Class]():
 		return encClass, nil
-	case reflect.TypeOf(ID(0)):
+	case reflect.TypeFor[ID](), reflect.TypeFor[Block]():
 		return encId, nil
-	case reflect.TypeOf(SEL(0)):
+	case reflect.TypeFor[SEL]():
 		return encSelector, nil
 	}
 
@@ -401,7 +436,7 @@ func encodeType(typ reflect.Type, insidePtr bool) (string, error) {
 	case reflect.Bool:
 		return encBool, nil
 	case reflect.Int:
-		return encLong, nil
+		return encLongLong, nil
 	case reflect.Int8:
 		return encChar, nil
 	case reflect.Int16:
@@ -409,9 +444,9 @@ func encodeType(typ reflect.Type, insidePtr bool) (string, error) {
 	case reflect.Int32:
 		return encInt, nil
 	case reflect.Int64:
-		return encULong, nil
+		return encLongLong, nil
 	case reflect.Uint:
-		return encULong, nil
+		return encULongLong, nil
 	case reflect.Uint8:
 		return encUChar, nil
 	case reflect.Uint16:
@@ -419,33 +454,41 @@ func encodeType(typ reflect.Type, insidePtr bool) (string, error) {
 	case reflect.Uint32:
 		return encUInt, nil
 	case reflect.Uint64:
-		return encULong, nil
+		return encULongLong, nil
 	case reflect.Uintptr:
 		return encPtr, nil
 	case reflect.Float32:
 		return encFloat, nil
 	case reflect.Float64:
 		return encDouble, nil
-	case reflect.Ptr:
+	case reflect.Pointer:
 		enc, err := encodeType(typ.Elem(), true)
 		return encPtr + enc, err
 	case reflect.Struct:
 		if insidePtr {
 			return encStructBegin + typ.Name() + encStructEnd, nil
 		}
-		encoding := encStructBegin
-		encoding += typ.Name()
-		encoding += "="
-		for i := 0; i < typ.NumField(); i++ {
+		var encoding stdstrings.Builder
+		encoding.WriteString(encStructBegin)
+		encoding.WriteString(typ.Name())
+		encoding.WriteString("=")
+		for i := range typ.NumField() {
 			f := typ.Field(i)
+			if f.Type.ConvertibleTo(hostLayoutType) {
+				// The structs.HostLayout marker is a signal to the Go compiler
+				// with no counterpart in C, so it is not a member as far as
+				// @encode is concerned. Other zero-sized fields are: clang
+				// encodes a zero-length array member as [0c].
+				continue
+			}
 			tmp, err := encodeType(f.Type, false)
 			if err != nil {
 				return "", err
 			}
-			encoding += tmp
+			encoding.WriteString(tmp)
 		}
-		encoding = encStructEnd
-		return encoding, nil
+		encoding.WriteString(encStructEnd)
+		return encoding.String(), nil
 	case reflect.UnsafePointer:
 		return encUnsafePtr, nil
 	case reflect.String:
@@ -456,22 +499,22 @@ func encodeType(typ reflect.Type, insidePtr bool) (string, error) {
 }
 
 // encodeFunc returns a functions type as if it was given to @encode(fn)
-func encodeFunc(fn interface{}) (string, error) {
+func encodeFunc(fn any) (string, error) {
 	typ := reflect.TypeOf(fn)
 	if typ.Kind() != reflect.Func {
 		return "", errors.New("not a func")
 	}
 
-	encoding := ""
+	var encoding stdstrings.Builder
 	switch typ.NumOut() {
 	case 0:
-		encoding += encVoid
+		encoding.WriteString(encVoid)
 	case 1:
 		tmp, err := encodeType(typ.Out(0), false)
 		if err != nil {
 			return "", err
 		}
-		encoding += tmp
+		encoding.WriteString(tmp)
 	default:
 		return "", errors.New("too many output parameters")
 	}
@@ -480,16 +523,16 @@ func encodeFunc(fn interface{}) (string, error) {
 		return "", errors.New("func doesn't take ID and SEL as its first two parameters")
 	}
 
-	encoding += encId
+	encoding.WriteString(encId)
 
 	for i := 1; i < typ.NumIn(); i++ {
 		tmp, err := encodeType(typ.In(i), false)
 		if err != nil {
 			return "", err
 		}
-		encoding += tmp
+		encoding.WriteString(tmp)
 	}
-	return encoding, nil
+	return encoding.String(), nil
 }
 
 // SuperClass returns the superclass of a class.
@@ -504,20 +547,6 @@ func (c Class) SuperClass() Class {
 // characters must be “@:” (the first character is the return type).
 func (c Class) AddMethod(name SEL, imp IMP, types string) bool {
 	return class_addMethod(c, name, imp, types)
-}
-
-// AddIvar adds a new instance variable to a class.
-// It may only be called after AllocateClassPair and before Register.
-// Adding an instance variable to an existing class is not supported.
-// The class must not be a metaclass. Adding an instance variable to a metaclass is not supported.
-// It takes the instance of the type of the Ivar and a string representing the type.
-//
-// Deprecated: use RegisterClass instead
-func (c Class) AddIvar(name string, ty interface{}, types string) bool {
-	typeOf := reflect.TypeOf(ty)
-	size := typeOf.Size()
-	alignment := uint8(math.Log2(float64(typeOf.Align())))
-	return class_addIvar(c, name, size, alignment, types)
 }
 
 // AddProtocol adds a protocol to a class.
@@ -537,14 +566,6 @@ func (c Class) InstanceVariable(name string) Ivar {
 	return class_getInstanceVariable(c, name)
 }
 
-// Register registers a class that was allocated using AllocateClassPair.
-// It can now be used to make objects by sending it either alloc and init or new.
-//
-// Deprecated: use RegisterClass instead
-func (c Class) Register() {
-	objc_registerClassPair(c)
-}
-
 // Ivar an opaque type that represents an instance variable.
 type Ivar uintptr
 
@@ -560,6 +581,43 @@ func (i Ivar) Name() string {
 	return ivar_getName(i)
 }
 
+// MethodDescription holds the name and type definition of a method.
+// It matches the Objective-C runtime's struct objc_method_description.
+type MethodDescription struct {
+	_           structs.HostLayout
+	name, types uintptr
+}
+
+// Name returns the name of this method.
+func (m MethodDescription) Name() string {
+	return strings.GoString(m.name)
+}
+
+// Types returns the OBJC runtime encoded type description.
+func (m MethodDescription) Types() string {
+	return strings.GoString(m.types)
+}
+
+// PropertyAttribute contains the null-terminated Name and Value pair of a Properties internal description.
+// It matches the Objective-C runtime's objc_property_attribute_t.
+type PropertyAttribute struct {
+	_           structs.HostLayout
+	Name, Value *byte
+}
+
+// Property is an opaque type for Objective-C property metadata.
+type Property uintptr
+
+// Name returns the name of this property.
+func (p Property) Name() string {
+	return property_getName(p)
+}
+
+// Attributes returns a comma separated list of PropertyAttribute
+func (p Property) Attributes() string {
+	return property_getAttributes(p)
+}
+
 // Protocol is a type that declares methods that can be implemented by any class.
 type Protocol [0]func()
 
@@ -568,9 +626,67 @@ func GetProtocol(name string) *Protocol {
 	return objc_getProtocol(name)
 }
 
+// AllocateProtocol creates a new protocol in the OBJC runtime or nil if the protocol already exists.
+func AllocateProtocol(name string) *Protocol {
+	return objc_allocateProtocol(name)
+}
+
+// Register registers the protocol created using AllocateProtocol with the runtime. This must be done
+// before it is used anywhere and can only be called once.
+func (p *Protocol) Register() {
+	objc_registerProtocol(p)
+}
+
+// CopyMethodDescriptionList returns a list of methods that this protocol has given it isRequiredMethod and isInstanceMethod.
+func (p *Protocol) CopyMethodDescriptionList(isRequiredMethod, isInstanceMethod bool) []MethodDescription {
+	count := uint32(0)
+	desc := protocol_copyMethodDescriptionList(p, isRequiredMethod, isInstanceMethod, &count)
+	methods := slices.Clone(unsafe.Slice(desc, count))
+	free(unsafe.Pointer(desc))
+	return methods
+}
+
+// CopyProtocolList returns a list of the protocols that this protocol inherits from.
+func (p *Protocol) CopyProtocolList() []*Protocol {
+	count := uint32(0)
+	desc := protocol_copyProtocolList(p, &count)
+	protocols := slices.Clone(unsafe.Slice(desc, count))
+	free(unsafe.Pointer(desc))
+	return protocols
+}
+
+// CopyPropertyList returns a list of properties that this protocol has given it isRequiredProperty and isInstanceProperty.
+func (p *Protocol) CopyPropertyList(isRequiredProperty, isInstanceProperty bool) []Property {
+	count := uint32(0)
+	desc := protocol_copyPropertyList2(p, &count, isRequiredProperty, isInstanceProperty)
+	protocols := slices.Clone(unsafe.Slice(desc, count))
+	free(unsafe.Pointer(desc))
+	return protocols
+}
+
+// Name returns the name of this protocol.
+func (p *Protocol) Name() string {
+	return protocol_getName(p)
+}
+
 // Equals return true if the two protocols are the same.
 func (p *Protocol) Equals(p2 *Protocol) bool {
 	return protocol_isEqual(p, p2)
+}
+
+// AddMethodDescription adds a method to a protocol. This can only be called between AllocateProtocol and Protocol.Register.
+func (p *Protocol) AddMethodDescription(name SEL, types string, isRequiredMethod, isInstanceMethod bool) {
+	protocol_addMethodDescription(p, name, types, isRequiredMethod, isInstanceMethod)
+}
+
+// AddProtocol marks the protocol as inheriting from another. This can only be called between AllocateProtocol and Protocol.Register.
+func (p *Protocol) AddProtocol(protocol *Protocol) {
+	protocol_addProtocol(p, protocol)
+}
+
+// AddProperty adds a property to the protocol. This can only be called between AllocateProtocol and Protocol.Register.
+func (p *Protocol) AddProperty(name string, attributes []PropertyAttribute, isRequiredProperty, isInstanceProperty bool) {
+	protocol_addProperty(p, name, attributes, uint32(len(attributes)), isRequiredProperty, isInstanceProperty)
 }
 
 // IMP is a function pointer that can be called by Objective-C code.
@@ -580,7 +696,7 @@ type IMP uintptr
 // It returns an IMP function pointer that can be called by Objective-C code.
 // The function panics if an error occurs.
 // The function pointer is never deallocated.
-func NewIMP(fn interface{}) IMP {
+func NewIMP(fn any) IMP {
 	ty := reflect.TypeOf(fn)
 	if ty.Kind() != reflect.Func {
 		panic("objc: not a function")
@@ -590,9 +706,9 @@ func NewIMP(fn interface{}) IMP {
 	switch {
 	case ty.NumIn() < 2:
 		fallthrough
-	case ty.In(0) != reflect.TypeOf(ID(0)):
+	case ty.In(0) != reflect.TypeFor[ID]():
 		fallthrough
-	case ty.In(1) != reflect.TypeOf(SEL(0)):
+	case ty.In(1) != reflect.TypeFor[SEL]():
 		panic("objc: NewIMP must take a (id, SEL) as its first two arguments; got " + ty.String())
 	}
 	return IMP(purego.NewCallback(fn))

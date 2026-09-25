@@ -16,6 +16,7 @@
 
 #include "oboe_oboe_AudioStreamBuilder_android.h"
 #include "oboe_oboe_Oboe_android.h"
+#include "oboe_oboe_Utilities_android.h"
 
 #include "oboe_common_OboeDebug_android.h"
 #include "oboe_common_QuirksManager_android.h"
@@ -200,6 +201,20 @@ bool QuirksManager::isConversionNeeded(
     const bool isLowLatency = builder.getPerformanceMode() == PerformanceMode::LowLatency;
     const bool isInput = builder.getDirection() == Direction::Input;
     const bool isFloat = builder.getFormat() == AudioFormat::Float;
+    const bool isIEC61937 = builder.getFormat() == AudioFormat::IEC61937;
+    const bool isCompressed = isCompressedFormat(builder.getFormat());
+
+    // There should be no conversion for IEC61937. Sample rates and channel counts must be set explicitly.
+    if (isIEC61937) {
+        LOGI("QuirksManager::%s() conversion not needed for IEC61937", __func__);
+        return false;
+    }
+
+    if (isCompressed) {
+        LOGI("QuirksManager::%s() conversion not needed for compressed format %d",
+             __func__, builder.getFormat());
+        return false;
+    }
 
     // There are multiple bugs involving using callback with a specified callback size.
     // Issue #778: O to Q had a problem with Legacy INPUT streams for FLOAT streams

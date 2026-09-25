@@ -22,6 +22,7 @@
 #include <mutex>
 #include <thread>
 
+#include "oboe_common_AdpfWrapper_android.h"
 #include "oboe_oboe_AudioStreamBuilder_android.h"
 #include "oboe_oboe_AudioStream_android.h"
 #include "oboe_oboe_Definitions_android.h"
@@ -51,6 +52,7 @@ public:
     // These functions override methods in AudioStream.
     // See AudioStream for documentation.
     Result open() override;
+    Result release() override;
     Result close() override;
 
     Result requestStart() override;
@@ -87,17 +89,66 @@ public:
         return AudioApi::AAudio;
     }
 
-    DataCallbackResult callOnAudioReady(AAudioStream *stream,
-                                                   void *audioData,
-                                                   int32_t numFrames);
+    DataCallbackResult callOnAudioReady(AAudioStream *stream, void *audioData, int32_t numFrames);
+
+    int32_t callOnPartialAudioReady(AAudioStream *stream, void *audioData, int32_t numFrames);
 
     bool isMMapUsed();
+
+    void closePerformanceHint() override {
+        mAdpfWrapper.close();
+        mAdpfOpenAttempted = false;
+    }
+
+    oboe::Result reportWorkload(int32_t appWorkload) override {
+        if (!isPerformanceHintEnabled()) {
+            return oboe::Result::ErrorInvalidState;
+        }
+        mAdpfWrapper.reportWorkload(appWorkload);
+        return oboe::Result::OK;
+    }
+
+    oboe::Result notifyWorkloadIncrease(bool cpu, bool gpu, const char* debugName) override {
+        if (!isPerformanceHintEnabled()) {
+            return oboe::Result::ErrorInvalidState;
+        }
+        return mAdpfWrapper.notifyWorkloadIncrease(cpu, gpu, debugName);
+    }
+
+    oboe::Result notifyWorkloadSpike(bool cpu, bool gpu, const char* debugName) override {
+        if (!isPerformanceHintEnabled()) {
+            return oboe::Result::ErrorInvalidState;
+        }
+        return mAdpfWrapper.notifyWorkloadSpike(cpu, gpu, debugName);
+    }
+
+    oboe::Result notifyWorkloadReset(bool cpu, bool gpu, const char* debugName) override {
+        if (!isPerformanceHintEnabled()) {
+            return oboe::Result::ErrorInvalidState;
+        }
+        return mAdpfWrapper.notifyWorkloadReset(cpu, gpu, debugName);
+    }
+
+    Result setOffloadDelayPadding(int32_t delayInFrames, int32_t paddingInFrames) override;
+    ResultWithValue<int32_t> getOffloadDelay() override;
+    ResultWithValue<int32_t> getOffloadPadding() override;
+    Result setOffloadEndOfStream() override;
+
+    ResultWithValue<int64_t> flushFromFrame(
+            FlushFromAccuracy accuracy, int64_t positionInFrames) override;
+
+    oboe::Result setPlaybackParameters(const PlaybackParameters& parameters) override;
+    ResultWithValue<PlaybackParameters> getPlaybackParameters() override;
 
 protected:
     static void internalErrorCallback(
             AAudioStream *stream,
             void *userData,
             aaudio_result_t error);
+
+    static void internalPresentationEndCallback(
+            AAudioStream *stream,
+            void *userData);
 
     void *getUnderlyingStream() const override {
         return mAAudioStream.load();
@@ -108,6 +159,14 @@ protected:
 
     void logUnsupportedAttributes();
 
+    void beginPerformanceHintInCallback() override;
+
+    void endPerformanceHintInCallback(int32_t numFrames) override;
+
+    // set by callback (or app when idle)
+    std::atomic<bool>    mAdpfOpenAttempted{false};
+    AdpfWrapper          mAdpfWrapper;
+
 private:
     // Must call under mLock. And stream must NOT be nullptr.
     Result requestStop_l(AAudioStream *stream);
@@ -117,10 +176,7 @@ private:
      */
     void launchStopThread();
 
-public:
-    int32_t getMDelayBeforeCloseMillis() const;
-
-    void setDelayBeforeCloseMillis(int32_t mDelayBeforeCloseMillis);
+    void updateDeviceIds();
 
 private:
 

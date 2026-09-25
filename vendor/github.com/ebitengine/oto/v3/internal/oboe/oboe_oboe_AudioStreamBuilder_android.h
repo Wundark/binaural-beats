@@ -344,7 +344,88 @@ public:
      * @return pointer to the builder so calls can be chained
      */
     AudioStreamBuilder *setDeviceId(int32_t deviceId) {
-        mDeviceId = deviceId;
+        mDeviceIds.clear();
+        if (deviceId != kUnspecified) {
+            mDeviceIds.push_back(deviceId);
+        }
+        return this;
+    }
+
+    /**
+     * Specify whether this stream audio may or may not be captured by other apps or the system.
+     *
+     * The default is AllowedCapturePolicy::Unspecified which maps to AAUDIO_ALLOW_CAPTURE_BY_ALL.
+     *
+     * Note that an application can also set its global policy, in which case the most restrictive
+     * policy is always applied. See android.media.AudioAttributes.setAllowedCapturePolicy.
+     *
+     * Added in API level 29 to AAudio.
+     *
+     * @param inputPreset the desired level of opt-out from being captured.
+     * @return pointer to the builder so calls can be chained
+     */
+    AudioStreamBuilder *setAllowedCapturePolicy(AllowedCapturePolicy allowedCapturePolicy) {
+        mAllowedCapturePolicy = allowedCapturePolicy;
+        return this;
+    }
+
+    /** Indicates whether this input stream must be marked as privacy sensitive or not.
+     *
+     * When PrivacySensitiveMode::Enabled, this input stream is privacy sensitive and any
+     * concurrent capture is not permitted.
+     *
+     * This is off (PrivacySensitiveMode::Disabled) by default except when the input preset is
+     * InputPreset::VoiceRecognition or InputPreset::Camcorder
+     *
+     * Always takes precedence over default from input preset when set explicitly.
+     *
+     * Only relevant if the stream direction is Direction::Input and AAudio is used.
+     *
+     * Added in API level 30 to AAudio.
+     *
+     * @param privacySensitive PrivacySensitiveMode::Enabled if capture from this stream must be
+     * marked as privacy sensitive, PrivacySensitiveMode::Disabled if stream should be marked as
+     * not sensitive.
+     * @return pointer to the builder so calls can be chained
+     */
+    AudioStreamBuilder *setPrivacySensitiveMode(PrivacySensitiveMode privacySensitiveMode) {
+        mPrivacySensitiveMode = privacySensitiveMode;
+        return this;
+    }
+
+    /**
+     * Specifies whether the audio data of this output stream has already been processed for spatialization.
+     *
+     * If the stream has been processed for spatialization, setting this to true will prevent issues such as
+     * double-processing on platforms that will spatialize audio data.
+     *
+     * This is false by default.
+     *
+     * Available since API level 32.
+     *
+     * @param isContentSpatialized whether the content is already spatialized
+     * @return pointer to the builder so calls can be chained
+     */
+    AudioStreamBuilder *setIsContentSpatialized(bool isContentSpatialized) {
+        mIsContentSpatialized = isContentSpatialized;
+        return this;
+    }
+
+    /**
+     * Sets the behavior affecting whether spatialization will be used.
+     *
+     * The AAudio system will use this information to select whether the stream will go through a
+     * spatializer effect or not when the effect is supported and enabled.
+     *
+     * This is SpatializationBehavior::Never by default.
+     *
+     * Available since API level 32.
+     *
+     * @param spatializationBehavior the desired spatialization behavior
+     * @return pointer to the builder so calls can be chained
+     */
+    AudioStreamBuilder *setSpatializationBehavior(SpatializationBehavior spatializationBehavior) {
+        mSpatializationBehavior = spatializationBehavior;
         return this;
     }
 
@@ -357,28 +438,95 @@ public:
      * We pass a shared_ptr so that the sharedDataCallback object cannot be deleted
      * before the stream is deleted.
      *
-     * @param dataCallback
+     * If both this method and setPartialDataCallback(std::shared_ptr<AudioStreamPartialDataCallback>)
+     * are called, the data callback from the last called method will be used.
+     *
+     * Note that if the stream is offloaded or compress formats, it is suggested to use
+     * setPartialDataCallback(std::shared_ptr<AudioStreamPartialDataCallback>) when it is available.
+     * The reason is that AudioStreamDataCallback will require apps to process all the provided
+     * data or none of the provided data. This is not suitable for compressed audio data, for
+     * gapless audio playback, or to drain audio to a fixed arbitrary stop point in frames.
+     *
+     * @param sharedDataCallback
      * @return pointer to the builder so calls can be chained
      */
-    AudioStreamBuilder *setDataCallback(std::shared_ptr<AudioStreamDataCallback> sharedDataCallback) {
+    AudioStreamBuilder *setDataCallback(
+            std::shared_ptr<AudioStreamDataCallback> sharedDataCallback) {
         // Use this raw pointer in the rest of the code to retain backwards compatibility.
         mDataCallback = sharedDataCallback.get();
         // Hold a shared_ptr to protect the raw pointer for the lifetime of the stream.
         mSharedDataCallback = sharedDataCallback;
+        mSharedPartialDataCallback.reset();
+        mPartialDataCallback = nullptr;
         return this;
     }
 
     /**
-    * Pass a raw pointer to a data callback. This is not recommended because the dataCallback
-    * object might get deleted by the app while it is being used.
-    *
-    * @deprecated Call setDataCallback(std::shared_ptr<AudioStreamDataCallback>) instead.
-    * @param dataCallback
-    * @return pointer to the builder so calls can be chained
-    */
+     * Pass a raw pointer to a data callback. This is not recommended because the dataCallback
+     * object might get deleted by the app while it is being used.
+     *
+     * If both this method and setPartialDataCallback(std::shared_ptr<AudioStreamPartialDataCallback>)
+     * are called, the data callback from the last called method will be used.
+     *
+     * Note that if the stream is offloaded or compress formats, it is suggested to use
+     * setPartialDataCallback(std::shared_ptr<AudioStreamPartialDataCallback>) when it is available.
+     * The reason is that AudioStreamDataCallback will require apps to process all the provided
+     * data or none of the provided data. This is not suitable for compressed audio data, for
+     * gapless audio playback, or to drain audio to a fixed arbitrary stop point in frames.
+     *
+     * @deprecated Call setDataCallback(std::shared_ptr<AudioStreamDataCallback>) instead.
+     * @param dataCallback
+     * @return pointer to the builder so calls can be chained
+     */
     AudioStreamBuilder *setDataCallback(AudioStreamDataCallback *dataCallback) {
         mDataCallback = dataCallback;
         mSharedDataCallback = nullptr;
+        mPartialDataCallback = nullptr;
+        mSharedPartialDataCallback.reset();
+        return this;
+    }
+
+    /**
+     * Specifies an object to handle data related callbacks from the underlying API.
+     *
+     * <strong>Important: See AudioStreamPartialDataCallback for restrictions on what may be called
+     * from the callback methods.</strong>
+     *
+     * We pass a shared_ptr and cache it so that the partial data callback object cannot be deleted
+     * before the stream is deleted.
+     *
+     * If both this method and setDataCallback(AudioStreamDataCallback*) or
+     * setDataCallback(std::shared_ptr<AudioStreamDataCallback>) are called,
+     * the data callback from the last called method will be used.
+     *
+     * Note that partial data callback from aaudio API at API level 37. In that case, when partial
+     * data callback is set on the Android device that is not supporting partial data callback API,
+     * the stream will fail to open.
+     *
+     * Also note that partial data callback is only supported by aaudio API. OpenSLES has been
+     * deprecated for years. When setting parital data callback and using openSLES will result in
+     * failing to open.
+     *
+     * When the stream is in low latency mode, the data buffer is pretty small. In that case, it
+     * may be easier to use AudioStreamDataCallback instead of AudioStreamPartialDataCallback. For
+     * other use cases that use a big buffer, such as offload playback, deep buffer playback, it
+     * will make more sense to use partial data callback. When the stream is offloaded, no data
+     * conversion is allowed. When the stream is a deep buffer stream, the data conversion will be
+     * provided by the Android framework. In that case, partial data callback is currently only
+     * supported without using data conversion from oboe.
+     *
+     * Call OboeExtensions::isPartialDataCallbackSupported() to check if partial data
+     * callback is supported by the device or not.
+     *
+     * @param partialDataCallback
+     * @return pointer to the builder so calls can be chained
+     */
+    AudioStreamBuilder *setPartialDataCallback(
+            const std::shared_ptr<AudioStreamPartialDataCallback>& partialDataCallback) {
+        mSharedDataCallback.reset();
+        mDataCallback = nullptr;
+        mSharedPartialDataCallback = partialDataCallback;
+        mPartialDataCallback = mSharedPartialDataCallback.get();
         return this;
     }
 
@@ -387,6 +535,10 @@ public:
      * This can occur when a stream is disconnected because a headset is plugged in or unplugged.
      * It can also occur if the audio service fails or if an exclusive stream is stolen by
      * another stream.
+     * 
+     * Note that error callbacks will only be called when a data callback has been specified
+     * and the stream is started. If you are not using a data callback then the read(), write()
+     * and requestStart() methods will return errors if the stream is disconnected.
      *
      * <strong>Important: See AudioStreamCallback for restrictions on what may be called
      * from the callback methods.</strong>
@@ -424,6 +576,30 @@ public:
     }
 
     /**
+     * Specifies an object to handle data presentation related callbacks from the underlying API.
+     * This can occur when all data queued in the audio system for an offload stream has been
+     * played.
+     *
+     * Note that presentation callbacks will only be called when a data callback has been specified
+     * and the stream is started.
+     *
+     * <strong>Important: See AudioStreamCallback for restrictions on what may be called
+     * from the callback methods.</strong>
+     *
+     * We pass a shared_ptr so that the presentationCallback object cannot be deleted before the
+     * stream is deleted. If the stream was created using a shared_ptr then the stream cannot be
+     * deleted before the presentation callback has finished running.
+     *
+     * @param sharedPresentationCallback
+     * @return pointer to the builder so calls can be chained
+     */
+    AudioStreamBuilder *setPresentationCallback(
+            std::shared_ptr<AudioStreamPresentationCallback> sharedPresentationCallback) {
+        mSharedPresentationCallback = sharedPresentationCallback;
+        return this;
+    }
+
+    /**
      * Specifies an object to handle data or error related callbacks from the underlying API.
      *
      * This is the equivalent of calling both setDataCallback() and setErrorCallback().
@@ -431,18 +607,10 @@ public:
      * <strong>Important: See AudioStreamCallback for restrictions on what may be called
      * from the callback methods.</strong>
      *
-     * When an error callback occurs, the associated stream will be stopped and closed in a separate thread.
+     * Note that when this is called, partial data callback will be reset.
      *
-     * A note on why the streamCallback parameter is a raw pointer rather than a smart pointer:
-     *
-     * The caller should retain ownership of the object streamCallback points to. At first glance weak_ptr may seem like
-     * a good candidate for streamCallback as this implies temporary ownership. However, a weak_ptr can only be created
-     * from a shared_ptr. A shared_ptr incurs some performance overhead. The callback object is likely to be accessed
-     * every few milliseconds when the stream requires new data so this overhead is something we want to avoid.
-     *
-     * This leaves a raw pointer as the logical type choice. The only caveat being that the caller must not destroy
-     * the callback before the stream has been closed.
-     *
+     * @deprecated Call setDataCallback(std::shared_ptr<AudioStreamDataCallback>) and
+     *     setErrorCallback(std::shared_ptr<AudioStreamErrorCallback>) instead.
      * @param streamCallback
      * @return pointer to the builder so calls can be chained
      */
@@ -450,6 +618,8 @@ public:
         // Use the same callback object for both, dual inheritance.
         mDataCallback = streamCallback;
         mErrorCallback = streamCallback;
+        mSharedPartialDataCallback.reset();
+        mPartialDataCallback = nullptr;
         return this;
     }
 
@@ -488,7 +658,7 @@ public:
      *
      * If you do the conversion in Oboe then you might still get a low latency stream.
      *
-     * Default is SampleRateConversionQuality::None
+     * Default is SampleRateConversionQuality::Medium
      */
     AudioStreamBuilder *setSampleRateConversionQuality(SampleRateConversionQuality quality) {
         mSampleRateConversionQuality = quality;
@@ -504,6 +674,8 @@ public:
     * The vast majority of apps have only one package per calling UID.
     * If an invalid package name is set, input streams may not be given permission to
     * record when started.
+    *
+    * Please declare this as some input streams will fail permission checks otherwise.
     *
     * The package name is usually the applicationId in your app's build.gradle file.
     *
@@ -578,6 +750,14 @@ public:
     Result openManagedStream(ManagedStream &stream);
 
 private:
+
+    /**
+     * Use this internally to implement opening with a shared_ptr.
+     *
+     * @param stream pointer to a variable to receive the stream address
+     * @return OBOE_OK if successful or a negative error code.
+     */
+    Result openStreamInternal(AudioStream **streamPP);
 
     /**
      * @param other

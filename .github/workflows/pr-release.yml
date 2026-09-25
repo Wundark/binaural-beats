@@ -23,11 +23,9 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.27"
           cache: true
 
-      - name: Install ALSA dev headers
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
 
       - name: Build release binaries (snapshot)
         uses: goreleaser/goreleaser-action@v6
@@ -54,7 +52,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.27"
           cache: true
 
       - uses: actions/setup-java@v4
@@ -160,13 +158,11 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.27"
           # No caches for untrusted code: pull_request_target cache writes land
           # in the base branch scope and could poison trusted builds.
           cache: false
 
-      - name: Install ALSA dev headers
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
 
       - name: Build release binaries (snapshot)
         uses: goreleaser/goreleaser-action@v6
@@ -194,7 +190,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.27"
           # No caches for untrusted code: pull_request_target cache writes land
           # in the base branch scope and could poison trusted builds.
           cache: false

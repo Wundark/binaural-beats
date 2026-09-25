@@ -15,10 +15,15 @@
 package oto
 
 import (
+	"fmt"
+
 	"github.com/ebitengine/oto/v3/internal/mux"
 )
 
 // Player is a PCM (pulse-code modulation) audio player.
+//
+// A player must be kept reachable as long as it should keep playing.
+// A player is closed when it becomes unreachable, even in the middle of playing.
 type Player struct {
 	player *mux.Player
 }
@@ -28,7 +33,18 @@ func (p *Player) Pause() {
 	p.player.Pause()
 }
 
+// PauseAndStopReading pauses its playing and stops reading the source.
+// After PauseAndStopReading returns, this player does not read the source until Play or Seek is called,
+// so the source can be closed safely.
+// The buffered data is kept, and Play resumes playing without a gap.
+// PauseAndStopReading blocks until an ongoing read from the source finishes, if any.
+func (p *Player) PauseAndStopReading() {
+	p.player.PauseAndStopReading()
+}
+
 // Play starts its playing if it doesn't play.
+//
+// Play returns immediately without reading the source.
 func (p *Player) Play() {
 	p.player.Play()
 }
@@ -38,20 +54,22 @@ func (p *Player) IsPlaying() bool {
 	return p.player.IsPlaying()
 }
 
-// Reset clears the underyling buffer and pauses its playing.
+// Reset clears the underlying buffer and pauses its playing.
 //
-// Deprecated: use Pause or Seek instead.
+// Deprecated: as of v2.3. Use [Player.Pause], [Player.PauseAndStopReading], or [Player.Seek] instead.
 func (p *Player) Reset() {
 	p.player.Reset()
 }
 
-// Volume returns the current volume in the range of [0, 1].
+// Volume returns the current volume, which is 0 or larger.
 // The default volume is 1.
 func (p *Player) Volume() float64 {
 	return p.player.Volume()
 }
 
-// SetVolume sets the current volume in the range of [0, 1].
+// SetVolume sets the current volume, which must be in the range of [0, math.MaxFloat32].
+// A volume larger than 1 amplifies the sound and might cause clipping.
+// A value out of the range, including NaN, is treated as 0.
 func (p *Player) SetVolume(volume float64) {
 	p.player.SetVolume(volume)
 }
@@ -61,9 +79,16 @@ func (p *Player) BufferedSize() int {
 	return p.player.BufferedSize()
 }
 
-// Err returns an error if this player has an error.
+// Err returns an error that occurred while reading the source.
+// Reaching the end of the source (io.EOF) is not treated as an error.
+//
+// Once Err returns a non-nil error, this player is closed and no longer usable,
+// and Err keeps returning the same error.
 func (p *Player) Err() error {
-	return p.player.Err()
+	if err := p.player.Err(); err != nil {
+		return fmt.Errorf("oto: audio error: %w", err)
+	}
+	return nil
 }
 
 // SetBufferSize sets the buffer size.
@@ -75,11 +100,17 @@ func (p *Player) SetBufferSize(bufferSize int) {
 // Seek implements io.Seeker.
 //
 // Seek returns an error when the underlying source doesn't implement io.Seeker.
+// Seek blocks until an ongoing read from the source finishes, if any.
 func (p *Player) Seek(offset int64, whence int) (int64, error) {
 	return p.player.Seek(offset, whence)
 }
 
 // Close implements io.Closer.
+//
+// Close does nothing and always returns nil.
+//
+// Deprecated: as of v3.4. you don't have to call Close.
 func (p *Player) Close() error {
-	return p.player.Close()
+	// (*mux.Player).Close() is called by the finalizer. Let's rely on it.
+	return nil
 }
