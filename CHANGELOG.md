@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.0.0
+## 0.1.0
 
-First release of the app for desktop and Android, alongside the command-line player and converter.
+First test release of the app for desktop and Android, alongside the command-line player and converter. Expect rough edges; please report problems as GitHub issues.
 
 ### App (Windows, macOS, Linux, Android)
 - Built-in session library: Unwind, Focus, Power Nap, Meditation, Lucid Dream and Insomniac.

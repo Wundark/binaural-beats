@@ -321,10 +321,10 @@ Releases are fully automated via GitHub Actions. To create a release:
 
 ```bash
 # 1. Tag the commit
-git tag v1.0.0
+git tag v0.1.0
 
 # 2. Push the tag
-git push origin v1.0.0
+git push origin v0.1.0
 ```
 
 This triggers three workflows:
@@ -335,7 +335,7 @@ This triggers three workflows:
 
 ### **Release checklist**
 
-1. Set the version in `tauri-app/src-tauri/tauri.conf.json`, `tauri-app/src-tauri/Cargo.toml` and `tauri-app/package.json` (the tag should match, e.g. `v1.0.0` for `1.0.0`). The Android version code is derived from it.
+1. Set the version in `tauri-app/src-tauri/tauri.conf.json`, `tauri-app/src-tauri/Cargo.toml` and `tauri-app/package.json` (the tag should match, e.g. `v0.1.0` for `0.1.0`). The Android version code is derived from it.
 2. Add the Android signing secrets once (below), so every release is signed with the same key and updates install over earlier versions.
 3. Tag and push as above, then check the release has the archives, installers and APK.
 
@@ -352,7 +352,7 @@ Add `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIA
 
 ### **Version format**
 
-Tags must match `v*` (e.g., `v1.0.0`, `v0.2.0-beta`). Pre-release tags (containing `-`) are automatically marked as pre-releases.
+Tags must match `v*` and use plain `MAJOR.MINOR.PATCH` numbers (e.g., `v0.1.0`): Windows installers (MSI) cannot use labels such as `-beta`. Versions below 1.0.0 are published as GitHub pre-releases; at 1.0.0, set `prerelease: auto` in `.goreleaser.yaml`.
 
 ### **PR builds**
 
