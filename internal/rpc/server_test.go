@@ -115,3 +115,40 @@ func TestTimelineIsStretched(t *testing.T) {
 		t.Fatalf("timeline %+v", tl)
 	}
 }
+
+func TestPlaylistRoundTrip(t *testing.T) {
+	eng := engine.NewEngine()
+	loadTestConfig(t, eng)
+	if r := call(t, eng, `{"jsonrpc":"2.0","method":"playlist_add","id":1}`); r.Error != nil {
+		t.Fatalf("playlist_add: %s", r.Error.Message)
+	}
+	r := call(t, eng, `{"jsonrpc":"2.0","method":"get_playlist","id":2}`)
+	var p engine.Playlist
+	if err := json.Unmarshal(r.Result, &p); err != nil || len(p.Items) != 1 || p.Current != 0 || p.Crossfade != engine.DefaultCrossfade {
+		t.Fatalf("get_playlist: %s %v", r.Result, err)
+	}
+
+	// A saved item can be added back to a fresh engine.
+	saved, _ := json.Marshal(p.Items[0].Config)
+	fresh := engine.NewEngine()
+	if r := call(t, fresh, `{"jsonrpc":"2.0","method":"playlist_add","params":{"config":`+string(saved)+`},"id":3}`); r.Error != nil {
+		t.Fatalf("playlist_add config: %s", r.Error.Message)
+	}
+	if r := call(t, fresh, `{"jsonrpc":"2.0","method":"playlist_select","params":{"index":0},"id":4}`); r.Error != nil {
+		t.Fatalf("playlist_select: %s", r.Error.Message)
+	}
+	st := fresh.GetStatus()
+	if !st.ConfigLoaded || st.PlaylistIndex != 0 || st.TotalDuration != 60 {
+		t.Fatalf("restored status: %+v", st)
+	}
+
+	if r := call(t, fresh, `{"jsonrpc":"2.0","method":"set_playlist_options","params":{"crossfade":500,"loop":true},"id":5}`); r.Error == nil {
+		t.Fatal("an overlong crossfade should fail")
+	}
+	if r := call(t, fresh, `{"jsonrpc":"2.0","method":"playlist_remove","params":{"index":3},"id":6}`); r.Error == nil {
+		t.Fatal("removing a missing item should fail")
+	}
+	if r := call(t, fresh, `{"jsonrpc":"2.0","method":"playlist_add","params":{"config":{"name":"bad"}},"id":7}`); r.Error == nil {
+		t.Fatal("adding an invalid config should fail")
+	}
+}

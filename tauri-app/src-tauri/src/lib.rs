@@ -112,6 +112,8 @@ struct PlaybackStatus {
     volume: f64,
     stretch: f64,
     config_loaded: bool,
+    playlist_index: i64,
+    remaining: f64,
 }
 
 // ─── Backend abstraction ───
@@ -275,18 +277,107 @@ async fn export_wav(
     app: tauri::AppHandle,
     state: tauri::State<'_, BackendState>,
     path: String,
+    playlist: Option<bool>,
 ) -> Result<String, String> {
+    let method = if playlist.unwrap_or(false) {
+        "export_playlist_wav"
+    } else {
+        "export_wav"
+    };
     let engine_path = engine_writable_path(&app, &path)?;
     let mut guard = state.lock().await;
     guard
-        .call(
-            "export_wav",
-            Some(serde_json::json!({ "path": engine_path })),
-        )
+        .call(method, Some(serde_json::json!({ "path": engine_path })))
         .await?;
     drop(guard);
     publish_export(&app, &engine_path, &path)?;
     Ok("Export complete".to_string())
+}
+
+// ─── Playlist ───
+
+#[tauri::command]
+async fn get_playlist(state: tauri::State<'_, BackendState>) -> Result<serde_json::Value, String> {
+    state.lock().await.call("get_playlist", None).await
+}
+
+/// Adds `config` (a saved playlist item), or the loaded session without it.
+#[tauri::command]
+async fn playlist_add(
+    state: tauri::State<'_, BackendState>,
+    config: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let params = config.map(|c| serde_json::json!({ "config": c }));
+    state.lock().await.call("playlist_add", params).await
+}
+
+#[tauri::command]
+async fn playlist_remove(
+    state: tauri::State<'_, BackendState>,
+    index: i64,
+) -> Result<serde_json::Value, String> {
+    state
+        .lock()
+        .await
+        .call(
+            "playlist_remove",
+            Some(serde_json::json!({ "index": index })),
+        )
+        .await
+}
+
+#[tauri::command]
+async fn playlist_move(
+    state: tauri::State<'_, BackendState>,
+    from: i64,
+    to: i64,
+) -> Result<serde_json::Value, String> {
+    state
+        .lock()
+        .await
+        .call(
+            "playlist_move",
+            Some(serde_json::json!({ "from": from, "to": to })),
+        )
+        .await
+}
+
+#[tauri::command]
+async fn playlist_clear(
+    state: tauri::State<'_, BackendState>,
+) -> Result<serde_json::Value, String> {
+    state.lock().await.call("playlist_clear", None).await
+}
+
+#[tauri::command]
+async fn playlist_select(
+    state: tauri::State<'_, BackendState>,
+    index: i64,
+) -> Result<serde_json::Value, String> {
+    state
+        .lock()
+        .await
+        .call(
+            "playlist_select",
+            Some(serde_json::json!({ "index": index })),
+        )
+        .await
+}
+
+#[tauri::command]
+async fn set_playlist_options(
+    state: tauri::State<'_, BackendState>,
+    crossfade: f64,
+    repeat: bool,
+) -> Result<serde_json::Value, String> {
+    state
+        .lock()
+        .await
+        .call(
+            "set_playlist_options",
+            Some(serde_json::json!({ "crossfade": crossfade, "loop": repeat })),
+        )
+        .await
 }
 
 // ─── File access ───
@@ -453,6 +544,13 @@ pub fn run() {
             get_status,
             export_wav,
             set_stretch,
+            get_playlist,
+            playlist_add,
+            playlist_remove,
+            playlist_move,
+            playlist_clear,
+            playlist_select,
+            set_playlist_options,
         ])
         .run(tauri::generate_context!())
         .expect("Error running Tauri application");

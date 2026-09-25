@@ -7,4 +7,6 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- The page background (bg-primary in styles.css) -->
+    <color name="page_background">#FF0F0F1A</color>
 </resources>

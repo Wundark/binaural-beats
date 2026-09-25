@@ -19,7 +19,8 @@ It comes as an app for Windows, macOS, Linux and Android, and as command-line to
 - **Pink Noise Integration**: Optionally include pink noise in your audio sessions.
 - **Time-Based Configuration**: Specify frequency and volume changes at specific times.
 - **Smooth Transitions**: Linear interpolation between frequency and volume changes for seamless transitions.
-- **Apps for desktop and Android**: A built-in session library, a timeline of the session with click-to-seek, and pause, resume and volume control. On Android, sessions keep playing with the screen off.
+- **Apps for desktop and Android**: A built-in session library, a timeline of the session you can tap or drag to seek (plus a position slider and skip buttons), and pause, resume and volume control. On Android, sessions keep playing with the screen off.
+- **Playlists**: Queue sessions to play one after another, crossfading between them (0 to 60 seconds, set in Settings), optionally repeating. The playlist is kept between launches and can be exported as one WAV file.
 - **SBaGen Support**: Open SBaGen (`.sbg`) session files directly, or convert them to YAML.
 - **WAV Export**: Render a whole session to a WAV file.
 - **Command-Line Interface**: Play or export sessions from the command line, including the built-in presets.
@@ -302,10 +303,20 @@ This reads newline-delimited JSON-RPC requests from stdin and writes responses t
 | `resume` | — | Resume paused playback |
 | `seek` | `{"time": 600}` | Jump to a position in seconds (when stopped, sets where `play` starts) |
 | `set_volume` | `{"volume": 0.5}` | Set the playback volume from 0 to 1 (exports are unaffected) |
-| `get_status` | — | Get current playback status, including `is_paused`, `volume` and `stretch` |
+| `get_status` | — | Get current playback status, including `is_paused`, `volume`, `stretch`, `playlist_index` and `remaining` (seconds until playback ends, or -1 for a repeating playlist) |
 | `get_timeline` | — | Get the loaded session's info and its `changes`, with times stretched |
 | `export_wav` | `{"path": "output.wav"}` | Export session to WAV file |
 | `set_stretch` | `{"factor": 1.5}` | Set time stretch factor |
+| `get_playlist` | — | Get the playlist: `items` (each with `name`, `description`, `total_duration` and its `config`), `current` (the loaded session's index, or -1), `crossfade` and `loop` |
+| `playlist_add` | `{"config": {...}}` (optional) | Add a session given as a config (as in a YAML file, or an item's `config`), or without params, add the loaded session, which then plays as part of the playlist |
+| `playlist_remove` | `{"index": 0}` | Remove an item |
+| `playlist_move` | `{"from": 0, "to": 2}` | Move an item |
+| `playlist_clear` | — | Empty the playlist |
+| `playlist_select` | `{"index": 1}` | Load an item; while playing, crossfade to it |
+| `set_playlist_options` | `{"crossfade": 10, "loop": false}` | Set the crossfade in seconds (0 to 120) and whether the playlist repeats |
+| `export_playlist_wav` | `{"path": "playlist.wav"}` | Export the whole playlist, with its crossfades, to a WAV file |
+
+When the loaded session is in the playlist, `play` continues through the rest of the playlist after it.
 
 Example:
 
