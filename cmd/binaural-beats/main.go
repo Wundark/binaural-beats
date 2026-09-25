@@ -11,16 +11,28 @@ import (
 	"github.com/Wundark/binaural-beats/internal/rpc"
 )
 
+// Set by GoReleaser at build time.
+var (
+	version = "dev"
+	commit  = "none"
+)
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to the session file (YAML or SBaGen .sbg)")
 	preset := flag.String("preset", "", "Play a built-in session instead of -config (see -list-presets)")
 	listPresets := flag.Bool("list-presets", false, "List the built-in sessions and exit")
+	showVersion := flag.Bool("version", false, "Print the version and exit")
 	outputPath := flag.String("output", "", "Path to the output WAV file (if empty, audio will be played)")
 	stretchFactor := flag.Float64("stretch", 1.0, "Stretch factor for playback time (default 1.0)")
 	rpcMode := flag.Bool("rpc", false, "Start in JSON-RPC server mode (stdin/stdout)")
 	volume := flag.Float64("volume", 1.0, "Playback volume from 0 to 1 (playback only)")
 	start := flag.Float64("start", 0, "Start playback this many seconds into the session (after stretching)")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("binaural-beats %s (%s)\n", version, commit)
+		return
+	}
 
 	eng := engine.NewEngine()
 

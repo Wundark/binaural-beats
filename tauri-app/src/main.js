@@ -277,6 +277,10 @@ document.addEventListener("keydown", (event) => {
 // Initialize: the engine may still be starting, so retry briefly.
 (async function init() {
   render(current);
+  window.__TAURI__.app
+    ?.getVersion()
+    .then((v) => (document.getElementById("app-version").textContent = `Binaural Beats ${v}`))
+    .catch(() => {});
   for (let i = 0; i < 20; i++) {
     try {
       const status = await refresh();
