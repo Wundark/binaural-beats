@@ -108,6 +108,9 @@ struct PlaybackStatus {
     pink_noise_volume: f64,
     total_duration: f64,
     is_playing: bool,
+    is_paused: bool,
+    volume: f64,
+    stretch: f64,
     config_loaded: bool,
 }
 
@@ -186,13 +189,34 @@ async fn load_config(
     app: tauri::AppHandle,
     state: tauri::State<'_, BackendState>,
     path: String,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
     let path = engine_readable_path(&app, path)?;
     let mut guard = state.lock().await;
     guard
         .call("load_config", Some(serde_json::json!({ "path": path })))
-        .await?;
-    Ok("Config loaded".to_string())
+        .await
+}
+
+#[tauri::command]
+async fn get_timeline(state: tauri::State<'_, BackendState>) -> Result<serde_json::Value, String> {
+    state.lock().await.call("get_timeline", None).await
+}
+
+#[tauri::command]
+async fn list_presets(state: tauri::State<'_, BackendState>) -> Result<serde_json::Value, String> {
+    state.lock().await.call("list_presets", None).await
+}
+
+#[tauri::command]
+async fn load_preset(
+    state: tauri::State<'_, BackendState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    state
+        .lock()
+        .await
+        .call("load_preset", Some(serde_json::json!({ "id": id })))
+        .await
 }
 
 #[tauri::command]
@@ -207,6 +231,36 @@ async fn stop(state: tauri::State<'_, BackendState>) -> Result<String, String> {
     let mut guard = state.lock().await;
     guard.call("stop", None).await?;
     Ok("Stopped".to_string())
+}
+
+#[tauri::command]
+async fn pause(state: tauri::State<'_, BackendState>) -> Result<(), String> {
+    state.lock().await.call("pause", None).await.map(|_| ())
+}
+
+#[tauri::command]
+async fn resume(state: tauri::State<'_, BackendState>) -> Result<(), String> {
+    state.lock().await.call("resume", None).await.map(|_| ())
+}
+
+#[tauri::command]
+async fn seek(state: tauri::State<'_, BackendState>, time: f64) -> Result<(), String> {
+    state
+        .lock()
+        .await
+        .call("seek", Some(serde_json::json!({ "time": time })))
+        .await
+        .map(|_| ())
+}
+
+#[tauri::command]
+async fn set_volume(state: tauri::State<'_, BackendState>, volume: f64) -> Result<(), String> {
+    state
+        .lock()
+        .await
+        .call("set_volume", Some(serde_json::json!({ "volume": volume })))
+        .await
+        .map(|_| ())
 }
 
 #[tauri::command]
@@ -258,7 +312,8 @@ fn engine_readable_path(app: &tauri::AppHandle, path: String) -> Result<String, 
         .fs()
         .read(source)
         .map_err(|e| format!("Failed to read config: {}", e))?;
-    let staged = cache_file(app, "config.yaml")?;
+    // No extension: the engine detects YAML or SBaGen from the content.
+    let staged = cache_file(app, "session")?;
     std::fs::write(&staged, data).map_err(|e| format!("Failed to stage config: {}", e))?;
     Ok(staged)
 }
@@ -386,8 +441,15 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             load_config,
+            list_presets,
+            load_preset,
+            get_timeline,
             play,
             stop,
+            pause,
+            resume,
+            seek,
+            set_volume,
             get_status,
             export_wav,
             set_stretch,

@@ -1,0 +1,25 @@
+name: Focus
+description: >-
+  25 minutes, sized for one focused work block. A steady 14 Hz beat (low beta)
+  over light pink noise, with gentle fades at the start and end.
+frequency_changes:
+  - time: 0                    # fade in
+    frequency: 200.0
+    beat_frequency: 14.0
+    pink_noise_volume: 0.0
+    tone_volume: 0.0
+  - time: 20
+    frequency: 200.0
+    beat_frequency: 14.0
+    pink_noise_volume: 0.25
+    tone_volume: 0.5
+  - time: 1470                 # hold, then fade out
+    frequency: 200.0
+    beat_frequency: 14.0
+    pink_noise_volume: 0.25
+    tone_volume: 0.5
+  - time: 1500
+    frequency: 200.0
+    beat_frequency: 14.0
+    pink_noise_volume: 0.0
+    tone_volume: 0.0

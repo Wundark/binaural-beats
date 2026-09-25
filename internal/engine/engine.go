@@ -8,18 +8,32 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gopxl/beep"
 	"github.com/gopxl/beep/wav"
 	"gopkg.in/yaml.v3"
+
+	"github.com/Wundark/binaural-beats/internal/sbagen"
 )
 
 // Config represents the structure of the YAML configuration file.
 type Config struct {
+	Name             string            `yaml:"name,omitempty"`
+	Description      string            `yaml:"description,omitempty"`
 	FrequencyChanges []FrequencyChange `yaml:"frequency_changes"`
+}
+
+// SessionInfo describes a loaded session.
+type SessionInfo struct {
+	Name          string  `json:"name"`
+	Description   string  `json:"description"`
+	TotalDuration float64 `json:"total_duration"`
 }
 
 // FrequencyChange represents a frequency change event.
@@ -40,6 +54,9 @@ type Status struct {
 	PinkNoiseVolume float64 `json:"pink_noise_volume"`
 	TotalDuration   float64 `json:"total_duration"`
 	IsPlaying       bool    `json:"is_playing"`
+	IsPaused        bool    `json:"is_paused"`
+	Volume          float64 `json:"volume"`
+	Stretch         float64 `json:"stretch"`
 	ConfigLoaded    bool    `json:"config_loaded"`
 }
 
@@ -73,28 +90,85 @@ func (pn *PinkNoise) nextSample() float64 {
 	return (pn.white[0] + pn.white[1] + pn.white[2] + pn.white[3] + pn.white[4]) * 0.1
 }
 
+// Ramp times that keep pause, resume and volume changes free of clicks.
+const (
+	pauseRampSeconds  = 0.03
+	volumeRampSeconds = 0.02
+)
+
 // BinauralStream generates the complete stereo signal: a base-frequency tone on
 // the left channel, a base+beat tone on the right channel, and pink noise on
 // both. Every frame it returns is written from scratch, so the output never
 // depends on what the caller's buffer held before (beep.Mixer reuses its
 // scratch buffer between streamers and blocks).
+//
+// The stream ends after total samples. Pause, Resume, Seek and SetVolume may
+// be called from any goroutine while it plays; they take effect at the next
+// buffer, with short ramps to avoid clicks.
 type BinauralStream struct {
 	sr      beep.SampleRate
 	pos     int
+	total   int
 	phaseL  float64
 	phaseR  float64
 	changes []FrequencyChange
 	seg     int
 	noise   *PinkNoise
+
+	env  float64 // pause envelope, 0 (paused) to 1
+	gain float64 // smoothed master volume
+
+	position atomic.Int64  // pos, published after each buffer
+	paused   atomic.Bool   // requested pause state
+	seekTo   atomic.Int64  // requested position in samples, or -1
+	volume   atomic.Uint64 // requested master volume (float64 bits)
 }
 
-// NewBinauralStream creates a stereo generator for the given (time-sorted) changes.
-func NewBinauralStream(sr beep.SampleRate, changes []FrequencyChange, noise *PinkNoise) *BinauralStream {
-	return &BinauralStream{sr: sr, changes: changes, noise: noise}
+// NewBinauralStream creates a stereo generator for the given (time-sorted)
+// changes that ends after total samples, at full volume.
+func NewBinauralStream(sr beep.SampleRate, changes []FrequencyChange, total int, noise *PinkNoise) *BinauralStream {
+	bs := &BinauralStream{sr: sr, changes: changes, total: total, noise: noise, env: 1, gain: 1}
+	bs.seekTo.Store(-1)
+	bs.volume.Store(math.Float64bits(1))
+	return bs
+}
+
+// Position returns the playback position in samples.
+func (bs *BinauralStream) Position() int { return int(bs.position.Load()) }
+
+// Pause fades the output out and holds the position until Resume.
+func (bs *BinauralStream) Pause() { bs.paused.Store(true) }
+
+// Resume continues playback after Pause.
+func (bs *BinauralStream) Resume() { bs.paused.Store(false) }
+
+// Paused reports whether a pause was requested.
+func (bs *BinauralStream) Paused() bool { return bs.paused.Load() }
+
+// Seek moves playback to the given sample, clamped to the stream length.
+func (bs *BinauralStream) Seek(sample int) {
+	if sample < 0 {
+		sample = 0
+	}
+	if sample > bs.total {
+		sample = bs.total
+	}
+	bs.seekTo.Store(int64(sample))
+	bs.position.Store(int64(sample))
+}
+
+// SetVolume sets the master volume (0 to 1). The change is ramped.
+func (bs *BinauralStream) SetVolume(v float64) { bs.volume.Store(math.Float64bits(v)) }
+
+// setVolumeNow sets the master volume without a ramp, for a stream that has
+// not started yet.
+func (bs *BinauralStream) setVolumeNow(v float64) {
+	bs.SetVolume(v)
+	bs.gain = v
 }
 
 // params returns the interpolated parameters at time t. It matches interpolate
-// but keeps a cursor into changes, since t only moves forward while streaming.
+// but keeps a cursor into changes, since t mostly moves forward while streaming.
 func (bs *BinauralStream) params(t float64) (freq, beat, toneVol, noiseVol float64) {
 	c := bs.changes
 	if len(c) == 0 {
@@ -123,7 +197,32 @@ func (bs *BinauralStream) params(t float64) (freq, beat, toneVol, noiseVol float
 
 func (bs *BinauralStream) Stream(samples [][2]float64) (n int, ok bool) {
 	sr := float64(bs.sr)
+	if s := bs.seekTo.Swap(-1); s >= 0 {
+		bs.pos = int(s)
+	}
+	paused := bs.paused.Load()
+	targetGain := math.Float64frombits(bs.volume.Load())
+	envStep := 1 / (pauseRampSeconds * sr)
+	gainCoef := 1 - math.Exp(-1/(volumeRampSeconds*sr))
+
 	for i := range samples {
+		if paused {
+			bs.env -= envStep
+			if bs.env <= 0 {
+				// Fully paused: hold the position and output silence.
+				bs.env = 0
+				samples[i] = [2]float64{}
+				continue
+			}
+		} else if bs.env < 1 {
+			bs.env = math.Min(1, bs.env+envStep)
+		}
+
+		if bs.pos >= bs.total {
+			bs.position.Store(int64(bs.pos))
+			return i, i > 0
+		}
+
 		t := float64(bs.pos) / sr
 		freq, beat, toneVol, noiseVol := bs.params(t)
 
@@ -138,28 +237,39 @@ func (bs *BinauralStream) Stream(samples [][2]float64) (n int, ok bool) {
 			noise *= noiseVol * 0.5
 		}
 
-		samples[i][0] = math.Sin(bs.phaseL)*toneVol*0.5 + noise
-		samples[i][1] = math.Sin(bs.phaseR)*toneVol*0.5 + noise
+		bs.gain += (targetGain - bs.gain) * gainCoef
+		g := bs.gain * bs.env
+		samples[i][0] = (math.Sin(bs.phaseL)*toneVol*0.5 + noise) * g
+		samples[i][1] = (math.Sin(bs.phaseR)*toneVol*0.5 + noise) * g
 		bs.pos++
 	}
+	bs.position.Store(int64(bs.pos))
 	return len(samples), true
 }
 
 func (bs *BinauralStream) Err() error { return nil }
 
-// ParseConfig reads and parses a YAML configuration file.
+// ParseConfig reads and parses a session file: YAML, or SBaGen (.sbg).
 func ParseConfig(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	var cfg Config
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true) // reject misspelled keys instead of ignoring them
-	if err := dec.Decode(&cfg); err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("config file is empty")
-		}
+	return ParseConfigData(filename, data)
+}
+
+// ParseConfigData parses a session from data. The name's extension selects
+// the format (.yaml/.yml or .sbg); without one, the content decides. A session
+// without a name of its own is named after the file.
+func ParseConfigData(name string, data []byte) (*Config, error) {
+	var cfg *Config
+	var err error
+	if isSbagen(name, data) {
+		cfg, err = parseSbagen(data)
+	} else {
+		cfg, err = parseYAML(data)
+	}
+	if err != nil {
 		return nil, err
 	}
 	// Stable, so entries sharing a time keep their order (an instant change).
@@ -169,7 +279,47 @@ func ParseConfig(filename string) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	if cfg.Name == "" {
+		base := filepath.Base(name)
+		cfg.Name = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	return cfg, nil
+}
+
+func isSbagen(name string, data []byte) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".sbg":
+		return true
+	case ".yaml", ".yml":
+		return false
+	}
+	// Every YAML session has this key; SBaGen files never do.
+	return !bytes.Contains(data, []byte("frequency_changes"))
+}
+
+func parseYAML(data []byte) (*Config, error) {
+	var cfg Config
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true) // reject misspelled keys instead of ignoring them
+	if err := dec.Decode(&cfg); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("config file is empty")
+		}
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+func parseSbagen(data []byte) (*Config, error) {
+	session, err := sbagen.Convert(bytes.NewReader(data), sbagen.DefaultFade)
+	if err != nil {
+		return nil, fmt.Errorf("SBaGen file: %w", err)
+	}
+	cfg := &Config{Name: session.Name, Description: session.Description}
+	for _, c := range session.Changes {
+		cfg.FrequencyChanges = append(cfg.FrequencyChanges, FrequencyChange(c))
+	}
+	return cfg, nil
 }
 
 // Validate checks that the config describes a playable session. It expects
@@ -276,12 +426,14 @@ func GetTotalPlaybackTime(changes []FrequencyChange) float64 {
 	return maxTime
 }
 
-// createMixer creates the audio stream from the current config state.
-func (e *Engine) createMixer() (beep.Streamer, beep.SampleRate) {
-	sr := beep.SampleRate(44100)
-	stream := NewBinauralStream(sr, e.changes, NewPinkNoise())
-	totalSamples := sr.N(time.Duration(e.totalDuration * float64(time.Second)))
-	return beep.Take(totalSamples, stream), sr
+// sampleRate is the rate sessions are generated at.
+const sampleRate = beep.SampleRate(44100)
+
+// newStream creates the audio stream from the current config state. The
+// caller must hold e.Mu.
+func (e *Engine) newStream() *BinauralStream {
+	total := sampleRate.N(time.Duration(e.totalDuration * float64(time.Second)))
+	return NewBinauralStream(sampleRate, e.changes, total, NewPinkNoise())
 }
 
 // Engine manages the audio generation and playback lifecycle.
@@ -290,8 +442,10 @@ type Engine struct {
 	config        *Config
 	stretch       float64
 	IsPlaying     bool
-	StartTime     time.Time
 	Done          chan struct{}
+	stream        *BinauralStream // the stream being played, while IsPlaying
+	volume        float64         // master volume for playback, 0 to 1
+	startAt       float64         // where the next Play starts, in seconds
 	baseFreqFunc  func(float64) float64
 	beatFreqFunc  func(float64) float64
 	volumeFunc    func(float64) float64
@@ -302,25 +456,62 @@ type Engine struct {
 }
 
 func NewEngine() *Engine {
-	return &Engine{stretch: 1.0}
+	return &Engine{stretch: 1.0, volume: 1.0}
 }
 
-func (e *Engine) LoadConfig(path string) error {
+// LoadConfig loads a session file (YAML or SBaGen).
+func (e *Engine) LoadConfig(path string) (SessionInfo, error) {
 	cfg, err := ParseConfig(path)
 	if err != nil {
-		return fmt.Errorf("failed to parse config: %w", err)
+		return SessionInfo{}, fmt.Errorf("failed to parse config: %w", err)
 	}
+	return e.load(cfg)
+}
 
+// LoadConfigData loads a session from data; see ParseConfigData.
+func (e *Engine) LoadConfigData(name string, data []byte) (SessionInfo, error) {
+	cfg, err := ParseConfigData(name, data)
+	if err != nil {
+		return SessionInfo{}, fmt.Errorf("failed to parse config: %w", err)
+	}
+	return e.load(cfg)
+}
+
+func (e *Engine) load(cfg *Config) (SessionInfo, error) {
 	e.Mu.Lock()
 	defer e.Mu.Unlock()
 
 	if e.IsPlaying {
-		return fmt.Errorf("cannot load config while playing")
+		return SessionInfo{}, fmt.Errorf("cannot load config while playing")
 	}
 
 	e.config = cfg
+	e.startAt = 0
 	e.applyStretch()
-	return nil
+	return e.sessionInfo(), nil
+}
+
+// Timeline is a loaded session's settings over time, after stretching.
+type Timeline struct {
+	SessionInfo
+	Changes []FrequencyChange `json:"changes"`
+}
+
+// Timeline returns the loaded session's changes, after stretching.
+func (e *Engine) Timeline() (Timeline, error) {
+	e.Mu.Lock()
+	defer e.Mu.Unlock()
+	if e.config == nil {
+		return Timeline{}, fmt.Errorf("no config loaded")
+	}
+	changes := make([]FrequencyChange, len(e.changes))
+	copy(changes, e.changes)
+	return Timeline{SessionInfo: e.sessionInfo(), Changes: changes}, nil
+}
+
+// sessionInfo describes the loaded session. The caller must hold e.Mu.
+func (e *Engine) sessionInfo() SessionInfo {
+	return SessionInfo{Name: e.config.Name, Description: e.config.Description, TotalDuration: e.totalDuration}
 }
 
 func (e *Engine) applyStretch() {
@@ -350,8 +541,66 @@ func (e *Engine) SetStretch(factor float64) error {
 	if factor <= 0 {
 		return fmt.Errorf("stretch factor must be positive")
 	}
+	// Keep the start position at the same point in the session.
+	e.startAt *= factor / e.stretch
 	e.stretch = factor
 	e.applyStretch()
+	return nil
+}
+
+// Pause pauses playback, keeping the position.
+func (e *Engine) Pause() error {
+	e.Mu.Lock()
+	defer e.Mu.Unlock()
+	if !e.IsPlaying {
+		return fmt.Errorf("not playing")
+	}
+	e.stream.Pause()
+	return nil
+}
+
+// Resume continues paused playback.
+func (e *Engine) Resume() error {
+	e.Mu.Lock()
+	defer e.Mu.Unlock()
+	if !e.IsPlaying {
+		return fmt.Errorf("not playing")
+	}
+	e.stream.Resume()
+	return nil
+}
+
+// Seek moves playback to t seconds into the session. When stopped, it sets
+// where the next Play starts.
+func (e *Engine) Seek(t float64) error {
+	e.Mu.Lock()
+	defer e.Mu.Unlock()
+	if e.config == nil {
+		return fmt.Errorf("no config loaded")
+	}
+	if math.IsNaN(t) {
+		return fmt.Errorf("invalid seek position")
+	}
+	t = math.Max(0, math.Min(t, e.totalDuration))
+	if e.IsPlaying {
+		e.stream.Seek(sampleRate.N(time.Duration(t * float64(time.Second))))
+	} else {
+		e.startAt = t
+	}
+	return nil
+}
+
+// SetVolume sets the master playback volume (0 to 1). Exports are unaffected.
+func (e *Engine) SetVolume(v float64) error {
+	if math.IsNaN(v) || v < 0 || v > 1 {
+		return fmt.Errorf("volume must be between 0 and 1")
+	}
+	e.Mu.Lock()
+	defer e.Mu.Unlock()
+	e.volume = v
+	if e.IsPlaying {
+		e.stream.SetVolume(v)
+	}
 	return nil
 }
 
@@ -361,22 +610,25 @@ func (e *Engine) GetStatus() Status {
 
 	s := Status{
 		IsPlaying:    e.IsPlaying,
+		Volume:       e.volume,
+		Stretch:      e.stretch,
 		ConfigLoaded: e.config != nil,
 	}
-	if e.config != nil {
-		s.TotalDuration = e.totalDuration
+	if e.config == nil {
+		return s
 	}
+	s.TotalDuration = e.totalDuration
+	t := e.startAt
 	if e.IsPlaying {
-		t := time.Since(e.StartTime).Seconds()
-		if t > e.totalDuration {
-			t = e.totalDuration
-		}
-		s.Time = t
-		s.Frequency = e.baseFreqFunc(t)
-		s.BeatFrequency = e.beatFreqFunc(t)
-		s.ToneVolume = e.volumeFunc(t)
-		s.PinkNoiseVolume = e.pinkNoiseFunc(t)
+		t = float64(e.stream.Position()) / float64(sampleRate)
+		s.IsPaused = e.stream.Paused()
 	}
+	t = math.Min(t, e.totalDuration)
+	s.Time = t
+	s.Frequency = e.baseFreqFunc(t)
+	s.BeatFrequency = e.beatFreqFunc(t)
+	s.ToneVolume = e.volumeFunc(t)
+	s.PinkNoiseVolume = e.pinkNoiseFunc(t)
 	return s
 }
 
@@ -405,9 +657,8 @@ func (e *Engine) ExportWAV(outputPath string) error {
 		e.Mu.Unlock()
 		return fmt.Errorf("no config loaded")
 	}
+	stream := e.newStream()
 	e.Mu.Unlock()
-
-	mixedStreamer, sr := e.createMixer()
 
 	outFile, err := os.Create(outputPath)
 	if err != nil {
@@ -416,12 +667,12 @@ func (e *Engine) ExportWAV(outputPath string) error {
 	defer outFile.Close()
 
 	format := beep.Format{
-		SampleRate:  sr,
+		SampleRate:  sampleRate,
 		NumChannels: 2,
 		Precision:   2,
 	}
 
-	if err := wav.Encode(outFile, mixedStreamer, format); err != nil {
+	if err := wav.Encode(outFile, stream, format); err != nil {
 		return fmt.Errorf("failed to encode WAV: %w", err)
 	}
 	return nil

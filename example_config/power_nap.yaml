@@ -1,0 +1,31 @@
+name: Power Nap
+description: >-
+  25 minutes. The beat descends from 10 Hz to 4.5 Hz (theta) over 8 minutes and
+  holds for 10, then rises to 14 Hz over the last 7 minutes so the session ends
+  at a waking pace. Volume stays up at the end instead of fading.
+frequency_changes:
+  - time: 0                    # fade in
+    frequency: 200.0
+    beat_frequency: 10.0
+    pink_noise_volume: 0.0
+    tone_volume: 0.0
+  - time: 20
+    frequency: 200.0
+    beat_frequency: 10.0
+    pink_noise_volume: 0.3
+    tone_volume: 0.4
+  - time: 480                  # reach 4.5 Hz
+    frequency: 200.0
+    beat_frequency: 4.5
+    pink_noise_volume: 0.3
+    tone_volume: 0.4
+  - time: 1080                 # hold, then rise
+    frequency: 200.0
+    beat_frequency: 4.5
+    pink_noise_volume: 0.3
+    tone_volume: 0.4
+  - time: 1500                 # end at 14 Hz, a little louder
+    frequency: 200.0
+    beat_frequency: 14.0
+    pink_noise_volume: 0.2
+    tone_volume: 0.6

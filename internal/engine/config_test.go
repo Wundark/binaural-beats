@@ -75,3 +75,59 @@ func TestExampleConfigsAreValid(t *testing.T) {
 		}
 	}
 }
+
+const testSbg = `## Test Session
+## A short description
+
+a: pink/40 300+10/10
+off: -
+NOW a
++00:10 off
+`
+
+func TestLoadSbagen(t *testing.T) {
+	for _, name := range []string{"session.sbg", "session", "content-uri-without-extension"} {
+		path := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(path, []byte(testSbg), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		info, err := NewEngine().LoadConfig(path)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		// Held for 10 minutes, then faded out over SBaGen's default 60s.
+		if info.Name != "Test Session" || info.Description != "A short description" || info.TotalDuration != 660 {
+			t.Fatalf("%s: %+v", name, info)
+		}
+	}
+}
+
+func TestFormatDetection(t *testing.T) {
+	yaml := "frequency_changes:\n  - time: 0\n  - time: 10\n"
+	cases := []struct {
+		name, data string
+		ok         bool
+	}{
+		{"x.yaml", yaml, true},
+		{"x.YML", yaml, true},
+		{"x", yaml, true},      // sniffed as YAML
+		{"x.sbg", yaml, false}, // extension wins: not valid SBaGen
+		{"x.yaml", testSbg, false},
+	}
+	for _, c := range cases {
+		_, err := ParseConfigData(c.name, []byte(c.data))
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err=%v, want ok=%v", c.name, err, c.ok)
+		}
+	}
+}
+
+func TestNameDefaultsToFileName(t *testing.T) {
+	cfg, err := ParseConfigData("/some/dir/My Session.yaml", []byte("frequency_changes:\n  - time: 0\n  - time: 10\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Name != "My Session" {
+		t.Fatalf("name %q", cfg.Name)
+	}
+}

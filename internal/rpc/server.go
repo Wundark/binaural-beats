@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/Wundark/binaural-beats/internal/engine"
+	"github.com/Wundark/binaural-beats/internal/presets"
 )
 
 // JSON-RPC 2.0 request/response types.
@@ -35,12 +36,24 @@ type LoadConfigParams struct {
 	Path string `json:"path"`
 }
 
+type LoadPresetParams struct {
+	ID string `json:"id"`
+}
+
 type ExportWAVParams struct {
 	Path string `json:"path"`
 }
 
 type SetStretchParams struct {
 	Factor float64 `json:"factor"`
+}
+
+type SeekParams struct {
+	Time float64 `json:"time"`
+}
+
+type SetVolumeParams struct {
+	Volume float64 `json:"volume"`
 }
 
 // ProcessRequest handles a single JSON-RPC request string and returns a JSON response string.
@@ -106,11 +119,41 @@ func handleRequest(eng *engine.Engine, req Request) Response {
 			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
 			return resp
 		}
-		if err := eng.LoadConfig(params.Path); err != nil {
+		info, err := eng.LoadConfig(params.Path)
+		if err != nil {
 			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
 			return resp
 		}
-		resp.Result = map[string]interface{}{"ok": true}
+		resp.Result = info
+
+	case "get_timeline":
+		timeline, err := eng.Timeline()
+		if err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = timeline
+
+	case "list_presets":
+		list, err := presets.List()
+		if err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = list
+
+	case "load_preset":
+		var params LoadPresetParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
+			return resp
+		}
+		info, err := presets.Load(eng, params.ID)
+		if err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = info
 
 	case "play":
 		if err := eng.Play(); err != nil {
@@ -149,6 +192,44 @@ func handleRequest(eng *engine.Engine, req Request) Response {
 			return resp
 		}
 		if err := eng.SetStretch(params.Factor); err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = map[string]interface{}{"ok": true}
+
+	case "pause":
+		if err := eng.Pause(); err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = map[string]interface{}{"ok": true}
+
+	case "resume":
+		if err := eng.Resume(); err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = map[string]interface{}{"ok": true}
+
+	case "seek":
+		var params SeekParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
+			return resp
+		}
+		if err := eng.Seek(params.Time); err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = map[string]interface{}{"ok": true}
+
+	case "set_volume":
+		var params SetVolumeParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
+			return resp
+		}
+		if err := eng.SetVolume(params.Volume); err != nil {
 			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
 			return resp
 		}

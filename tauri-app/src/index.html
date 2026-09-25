@@ -14,10 +14,17 @@
     </header>
 
     <section class="config-section">
-      <h2>Configuration</h2>
+      <h2>Session</h2>
+      <div class="session-info">
+        <div class="session-header">
+          <span id="config-name" class="config-name">No session loaded</span>
+          <span id="session-duration" class="session-duration"></span>
+        </div>
+        <p id="session-description" class="session-description">Pick a session from the library or open a YAML or SBaGen (.sbg) file.</p>
+      </div>
+      <div id="preset-list" class="preset-list"></div>
       <div class="config-controls">
-        <button id="btn-load" class="btn btn-primary">Load Config</button>
-        <span id="config-name" class="config-name">No config loaded</span>
+        <button id="btn-load" class="btn btn-secondary">Open File&hellip;</button>
       </div>
     </section>
 
@@ -38,12 +45,22 @@
         <button id="btn-export" class="btn btn-secondary" disabled>Export WAV</button>
       </div>
 
+      <div class="volume-controls">
+        <label for="volume-slider">Volume</label>
+        <input type="range" id="volume-slider" min="0" max="100" step="1" value="100" />
+        <span id="volume-value">100%</span>
+      </div>
+
       <div class="progress-container">
-        <div class="progress-bar">
-          <div id="progress-fill" class="progress-fill"></div>
+        <div class="timeline-legend" aria-hidden="true">
+          <span class="legend-beat">Beat frequency</span>
+          <span class="legend-tone">Tone volume</span>
+          <span class="legend-noise">Pink noise volume</span>
         </div>
+        <canvas id="timeline" class="timeline" title="Click to seek"></canvas>
         <div class="progress-time">
           <span id="time-elapsed">0:00</span>
+          <span id="timeline-hover" class="timeline-hover"></span>
           <span id="time-total">/ 0:00</span>
         </div>
       </div>

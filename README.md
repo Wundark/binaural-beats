@@ -44,11 +44,22 @@ Ensure you are in the project directory and have Go installed.
 go run cmd/binaural-beats/main.go -config example_config/insomniac.yaml
 ```
 
+The player also loads SBaGen files directly (`-config session.sbg`), and has a built-in session library:
+
+```bash
+go run cmd/binaural-beats/main.go -list-presets
+go run cmd/binaural-beats/main.go -preset meditation
+```
+
 #### Command line options
 
-* `-config` - Path to the YAML config
+* `-config` - Path to the session file: YAML, or SBaGen (`.sbg`)
+* `-preset` - (OPTIONAL) Play a built-in session instead of `-config`
+* `-list-presets` - (OPTIONAL) List the built-in sessions and exit
 * `-output` - (OPTIONAL) Path for the WAV to be saved
 * `-stretch` - (OPTIONAL) Stretch factor for playback time (default 1.0)
+* `-volume` - (OPTIONAL) Playback volume from 0 to 1 (default 1.0; exports are always full volume)
+* `-start` - (OPTIONAL) Start playback this many seconds into the session
 
 ### **Export a config to WAV**
 
@@ -59,6 +70,8 @@ go run cmd/binaural-beats/main.go -config example_config/insomniac.yaml -output 
 ```
 
 ### **Converting from SBG to YAML**
+
+The player and apps open `.sbg` files directly, so converting is only needed to edit a session as YAML. The converter keeps the file's `##` title and description comments as `name` and `description`.
 
 Ensure you are in the project directory and have Go installed.
 
@@ -91,6 +104,8 @@ The configuration file is written in YAML format and defines how the binaural be
 ### **Configuration Structure**
 
 ```yaml
+name: <string>                  # Optional: shown in the apps (defaults to the file name)
+description: <string>           # Optional: shown in the apps
 frequency_changes:
   - time: <float>               # Time in seconds from the start of playback
     frequency: <float>          # Base frequency in Hz
@@ -160,10 +175,12 @@ This example replicates the ["Insomniac" file](https://github.com/brainbang/sbag
 - **cmd/binaural-beats-lib/main.go**: C shared library build for Android FFI.
 - **cmd/converter/main.go**: Convert from SBG to YAML.
 - **internal/engine/**: Audio engine package (playback, WAV export, status).
+- **internal/sbagen/**: SBaGen (`.sbg`) parser and converter, used by the engine and `cmd/converter`.
+- **internal/presets/**: The built-in session library.
 - **internal/rpc/**: JSON-RPC 2.0 server for IPC between Tauri and the Go engine.
 - **tauri-app/**: Tauri v2 desktop/mobile app (Rust backend + HTML/JS frontend).
 - **scripts/**: Build helper scripts for sidecars and Android libraries.
-- **example_config/**: Example YAML session configurations.
+- **example_config/**: Example YAML sessions, embedded as the built-in session library.
 - **.goreleaser.yaml**: GoReleaser cross-platform build configuration.
 - **.github/workflows/**: CI, release, Android APK, and PR build workflows.
 
@@ -182,7 +199,9 @@ Pre-built binaries for all platforms are available on the [GitHub Releases](http
 
 ## **Desktop App (Tauri)**
 
-A cross-platform desktop GUI is available via Tauri. It runs the Go audio engine as a sidecar process (`binaural-engine`, installed next to the app executable) and talks to it over JSON-RPC.
+A cross-platform GUI for desktop and Android is available via Tauri. It has a built-in session library, opens YAML and SBaGen files, and shows the session as a timeline of beat frequency over the brainwave bands (delta, theta, alpha, beta) with tone and noise volumes; click the timeline to seek. Playback can be paused and resumed, and has its own volume control.
+
+On desktop it runs the Go audio engine as a sidecar process (`binaural-engine`, installed next to the app executable) and talks to it over JSON-RPC.
 
 ### **Prerequisites**
 
@@ -258,10 +277,17 @@ This reads newline-delimited JSON-RPC requests from stdin and writes responses t
 
 | Method | Params | Description |
 |--------|--------|-------------|
-| `load_config` | `{"path": "config.yaml"}` | Load a YAML configuration file |
+| `load_config` | `{"path": "config.yaml"}` | Load a session file (YAML or `.sbg`); returns its `name`, `description` and `total_duration` |
+| `list_presets` | — | List the built-in sessions (`id`, `name`, `description`, `total_duration`) |
+| `load_preset` | `{"id": "meditation"}` | Load a built-in session; returns the same info as `load_config` |
 | `play` | — | Start real-time playback |
 | `stop` | — | Stop playback |
-| `get_status` | — | Get current playback status |
+| `pause` | — | Pause playback, keeping the position |
+| `resume` | — | Resume paused playback |
+| `seek` | `{"time": 600}` | Jump to a position in seconds (when stopped, sets where `play` starts) |
+| `set_volume` | `{"volume": 0.5}` | Set the playback volume from 0 to 1 (exports are unaffected) |
+| `get_status` | — | Get current playback status, including `is_paused`, `volume` and `stretch` |
+| `get_timeline` | — | Get the loaded session's info and its `changes`, with times stretched |
 | `export_wav` | `{"path": "output.wav"}` | Export session to WAV file |
 | `set_stretch` | `{"factor": 1.5}` | Set time stretch factor |
 

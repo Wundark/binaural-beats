@@ -1,4 +1,4 @@
-package main
+package sbagen
 
 import (
 	"reflect"
@@ -6,17 +6,13 @@ import (
 	"testing"
 )
 
-func convert(t *testing.T, sbg string, fade float64) []FrequencyChange {
+func convert(t *testing.T, sbg string, fade float64) []Change {
 	t.Helper()
-	toneSets, seq, err := parseSbagen(strings.NewReader(sbg))
+	s, err := Convert(strings.NewReader(sbg), fade)
 	if err != nil {
-		t.Fatalf("parseSbagen: %v", err)
+		t.Fatalf("Convert: %v", err)
 	}
-	changes, err := convertToFrequencyChanges(toneSets, seq, fade)
-	if err != nil {
-		t.Fatalf("convertToFrequencyChanges: %v", err)
-	}
-	return changes
+	return s.Changes
 }
 
 func TestHoldsThenFades(t *testing.T) {
@@ -30,7 +26,7 @@ NOW alpha
 +00:15 theta
 +00:30 off
 `, 60)
-	want := []FrequencyChange{
+	want := []Change{
 		{Time: 0, Frequency: 300, BeatFrequency: 10, PinkNoiseVolume: 0.4, ToneVolume: 0.1},
 		{Time: 900, Frequency: 300, BeatFrequency: 10, PinkNoiseVolume: 0.4, ToneVolume: 0.1},
 		{Time: 960, Frequency: 150, BeatFrequency: 6, PinkNoiseVolume: 0.2, ToneVolume: 0.15},
@@ -50,7 +46,7 @@ b: 150+4/20
 NOW a ->
 +00:10 b
 `, 60)
-	want := []FrequencyChange{
+	want := []Change{
 		{Time: 0, Frequency: 300, BeatFrequency: 10, ToneVolume: 0.1},
 		{Time: 600, Frequency: 150, BeatFrequency: 4, ToneVolume: 0.2},
 	}
@@ -125,7 +121,7 @@ func TestToneSpecifications(t *testing.T) {
 		{"pink/150 400+14/300", ToneSet{Frequency: 400, BeatFrequency: 14, PinkNoiseVolume: 1, ToneVolume: 1}},
 	}
 	for _, c := range cases {
-		got, err := parseToneSet("x", c.spec)
+		got, err := (&parser{}).parseToneSet("x", c.spec)
 		if err != nil {
 			t.Fatalf("%q: %v", c.spec, err)
 		}
@@ -151,12 +147,30 @@ func TestErrors(t *testing.T) {
 		"bad tone":            "a: 300x10\nNOW a\n",
 	}
 	for name, sbg := range cases {
-		toneSets, seq, err := parseSbagen(strings.NewReader(sbg))
-		if err == nil {
-			_, err = convertToFrequencyChanges(toneSets, seq, 60)
-		}
-		if err == nil {
+		if _, err := Convert(strings.NewReader(sbg), 60); err == nil {
 			t.Errorf("%s: expected an error", name)
 		}
+	}
+}
+
+func TestHeaderAndWarnings(t *testing.T) {
+	s, err := Convert(strings.NewReader(`## Insomniac
+##
+## Insomniac
+## Sleep (STRONG)
+## 45 Minutes
+
+## not part of the header
+loud: pink/150 300+10/10 200+4/10
+NOW loud
+`), 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Name != "Insomniac" || s.Description != "Sleep (STRONG)\n45 Minutes" {
+		t.Fatalf("name %q, description %q", s.Name, s.Description)
+	}
+	if len(s.Warnings) != 2 {
+		t.Fatalf("want a multi-tone and a clamp warning, got %q", s.Warnings)
 	}
 }

@@ -1,0 +1,30 @@
+name: Unwind
+description: >-
+  20 minutes. The beat eases from 12 Hz down to 8 Hz (alpha) over the first
+  8 minutes and stays there, over soft pink noise.
+frequency_changes:
+  - time: 0                    # fade in
+    frequency: 180.0
+    beat_frequency: 12.0
+    pink_noise_volume: 0.0
+    tone_volume: 0.0
+  - time: 20
+    frequency: 180.0
+    beat_frequency: 12.0
+    pink_noise_volume: 0.35
+    tone_volume: 0.4
+  - time: 480                  # reach 8 Hz
+    frequency: 180.0
+    beat_frequency: 8.0
+    pink_noise_volume: 0.35
+    tone_volume: 0.4
+  - time: 1140                 # hold, then fade out over the last minute
+    frequency: 180.0
+    beat_frequency: 8.0
+    pink_noise_volume: 0.35
+    tone_volume: 0.4
+  - time: 1200
+    frequency: 180.0
+    beat_frequency: 8.0
+    pink_noise_volume: 0.0
+    tone_volume: 0.0
