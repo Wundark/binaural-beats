@@ -93,3 +93,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: installers/*
+          # Versions below 1.0.0 are test releases.
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') }}

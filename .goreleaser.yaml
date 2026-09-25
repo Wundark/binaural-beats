@@ -86,4 +86,5 @@ release:
     owner: Wundark
     name: binaural-beats
   draft: false
-  prerelease: auto
+  # Versions below 1.0.0 are test releases; switch back to "auto" at 1.0.0.
+  prerelease: true
