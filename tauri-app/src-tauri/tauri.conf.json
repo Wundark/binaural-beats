@@ -12,10 +12,13 @@
     "windows": [
       {
         "title": "Binaural Beats",
-        "width": 800,
-        "height": 600,
+        "width": 820,
+        "height": 740,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "minWidth": 380,
+        "minHeight": 480,
+        "center": true
       }
     ],
     "security": {
