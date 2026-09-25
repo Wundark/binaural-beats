@@ -56,6 +56,7 @@ type Status struct {
 	IsPlaying       bool    `json:"is_playing"`
 	IsPaused        bool    `json:"is_paused"`
 	Volume          float64 `json:"volume"`
+	Stretch         float64 `json:"stretch"`
 	ConfigLoaded    bool    `json:"config_loaded"`
 }
 
@@ -490,6 +491,24 @@ func (e *Engine) load(cfg *Config) (SessionInfo, error) {
 	return e.sessionInfo(), nil
 }
 
+// Timeline is a loaded session's settings over time, after stretching.
+type Timeline struct {
+	SessionInfo
+	Changes []FrequencyChange `json:"changes"`
+}
+
+// Timeline returns the loaded session's changes, after stretching.
+func (e *Engine) Timeline() (Timeline, error) {
+	e.Mu.Lock()
+	defer e.Mu.Unlock()
+	if e.config == nil {
+		return Timeline{}, fmt.Errorf("no config loaded")
+	}
+	changes := make([]FrequencyChange, len(e.changes))
+	copy(changes, e.changes)
+	return Timeline{SessionInfo: e.sessionInfo(), Changes: changes}, nil
+}
+
 // sessionInfo describes the loaded session. The caller must hold e.Mu.
 func (e *Engine) sessionInfo() SessionInfo {
 	return SessionInfo{Name: e.config.Name, Description: e.config.Description, TotalDuration: e.totalDuration}
@@ -592,6 +611,7 @@ func (e *Engine) GetStatus() Status {
 	s := Status{
 		IsPlaying:    e.IsPlaying,
 		Volume:       e.volume,
+		Stretch:      e.stretch,
 		ConfigLoaded: e.config != nil,
 	}
 	if e.config == nil {

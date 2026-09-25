@@ -1,3 +1,5 @@
+import { Timeline } from "./timeline.js";
+
 const { invoke } = window.__TAURI__.core;
 const { open, save } = window.__TAURI__.dialog;
 
@@ -19,8 +21,7 @@ const stretchSlider = document.getElementById("stretch-slider");
 const stretchValue = document.getElementById("stretch-value");
 const volumeSlider = document.getElementById("volume-slider");
 const volumeValue = document.getElementById("volume-value");
-const progressBar = document.getElementById("progress-bar");
-const progressFill = document.getElementById("progress-fill");
+const timelineHover = document.getElementById("timeline-hover");
 const timeElapsed = document.getElementById("time-elapsed");
 const timeTotal = document.getElementById("time-total");
 const statusFreq = document.getElementById("status-freq");
@@ -74,11 +75,9 @@ function render(status) {
   }
   btnStretch.disabled = playing || exporting;
   stretchSlider.disabled = playing || exporting;
-  progressBar.classList.toggle("seekable", loaded);
 
   if (!loaded) return;
-  const pct = status.total_duration > 0 ? (status.time / status.total_duration) * 100 : 0;
-  progressFill.style.width = `${pct}%`;
+  timeline.setTime(status.time);
   timeElapsed.textContent = formatTime(status.time);
   timeTotal.textContent = `/ ${formatTime(status.total_duration)}`;
   statusFreq.textContent = `${status.frequency.toFixed(1)} Hz`;
@@ -128,6 +127,7 @@ async function loadPresets() {
       button.addEventListener("click", () =>
         run(async () => {
           showSession(await invoke("load_preset", { id: p.id }), p.id);
+          await refreshTimeline();
           await refresh();
         })
       );
@@ -148,6 +148,7 @@ btnLoad.addEventListener("click", () =>
     if (!path) return;
 
     showSession(await invoke("load_config", { path }));
+    await refreshTimeline();
     await refresh();
     showMessage("Session loaded");
   })
@@ -175,16 +176,23 @@ btnStop.addEventListener("click", () =>
   })
 );
 
-// Seek by clicking the progress bar (while stopped, this sets where Play starts)
-progressBar.addEventListener("click", (event) =>
-  run(async () => {
-    if (!current.config_loaded || current.total_duration <= 0) return;
-    const rect = progressBar.getBoundingClientRect();
-    const fraction = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    await invoke("seek", { time: fraction * current.total_duration });
-    await refresh();
-  })
-);
+// Timeline: click to seek (while stopped, this sets where Play starts)
+const timeline = new Timeline(document.getElementById("timeline"), {
+  onSeek: (time) =>
+    run(async () => {
+      await invoke("seek", { time });
+      await refresh();
+    }),
+  onHover: (info) => {
+    timelineHover.textContent = info
+      ? `${formatTime(info.time)} · ${info.beat.toFixed(1)} Hz ${info.band.toLowerCase()}`
+      : "";
+  },
+});
+
+async function refreshTimeline() {
+  timeline.setData(await invoke("get_timeline"));
+}
 
 // Volume
 volumeSlider.addEventListener("input", () =>
@@ -226,6 +234,7 @@ btnStretch.addEventListener("click", () =>
   run(async () => {
     const factor = parseFloat(stretchSlider.value);
     await invoke("set_stretch", { factor });
+    await refreshTimeline();
     await refresh();
     showMessage(`Stretch set to ${factor}x`);
   })
@@ -245,9 +254,19 @@ document.addEventListener("keydown", (event) => {
   for (let i = 0; i < 20; i++) {
     try {
       const status = await refresh();
+      // Match the controls to the engine, which keeps its settings when the
+      // page reloads.
       volumeSlider.value = Math.round(status.volume * 100);
       volumeValue.textContent = `${volumeSlider.value}%`;
+      stretchSlider.value = status.stretch;
+      stretchValue.textContent = `${stretchSlider.value}x`;
       await loadPresets();
+      if (status.config_loaded) {
+        // The page was reloaded (e.g. an Android rotation) with a session loaded.
+        const loaded = await invoke("get_timeline");
+        showSession(loaded);
+        timeline.setData(loaded);
+      }
       return;
     } catch (e) {
       await new Promise((r) => setTimeout(r, 250));

@@ -110,6 +110,7 @@ struct PlaybackStatus {
     is_playing: bool,
     is_paused: bool,
     volume: f64,
+    stretch: f64,
     config_loaded: bool,
 }
 
@@ -194,6 +195,11 @@ async fn load_config(
     guard
         .call("load_config", Some(serde_json::json!({ "path": path })))
         .await
+}
+
+#[tauri::command]
+async fn get_timeline(state: tauri::State<'_, BackendState>) -> Result<serde_json::Value, String> {
+    state.lock().await.call("get_timeline", None).await
 }
 
 #[tauri::command]
@@ -437,6 +443,7 @@ pub fn run() {
             load_config,
             list_presets,
             load_preset,
+            get_timeline,
             play,
             stop,
             pause,

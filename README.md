@@ -199,7 +199,9 @@ Pre-built binaries for all platforms are available on the [GitHub Releases](http
 
 ## **Desktop App (Tauri)**
 
-A cross-platform desktop GUI is available via Tauri. It runs the Go audio engine as a sidecar process (`binaural-engine`, installed next to the app executable) and talks to it over JSON-RPC.
+A cross-platform GUI for desktop and Android is available via Tauri. It has a built-in session library, opens YAML and SBaGen files, and shows the session as a timeline of beat frequency over the brainwave bands (delta, theta, alpha, beta) with tone and noise volumes; click the timeline to seek. Playback can be paused and resumed, and has its own volume control.
+
+On desktop it runs the Go audio engine as a sidecar process (`binaural-engine`, installed next to the app executable) and talks to it over JSON-RPC.
 
 ### **Prerequisites**
 
@@ -284,7 +286,8 @@ This reads newline-delimited JSON-RPC requests from stdin and writes responses t
 | `resume` | — | Resume paused playback |
 | `seek` | `{"time": 600}` | Jump to a position in seconds (when stopped, sets where `play` starts) |
 | `set_volume` | `{"volume": 0.5}` | Set the playback volume from 0 to 1 (exports are unaffected) |
-| `get_status` | — | Get current playback status, including `is_paused` and `volume` |
+| `get_status` | — | Get current playback status, including `is_paused`, `volume` and `stretch` |
+| `get_timeline` | — | Get the loaded session's info and its `changes`, with times stretched |
 | `export_wav` | `{"path": "output.wav"}` | Export session to WAV file |
 | `set_stretch` | `{"factor": 1.5}` | Set time stretch factor |
 

@@ -74,7 +74,7 @@ func TestSeekAndVolumeShowInStatus(t *testing.T) {
 	if err := json.Unmarshal(r.Result, &st); err != nil {
 		t.Fatal(err)
 	}
-	if st.Time != 30 || st.Frequency != 150 || st.Volume != 0.5 || st.TotalDuration != 60 {
+	if st.Time != 30 || st.Frequency != 150 || st.Volume != 0.5 || st.Stretch != 1 || st.TotalDuration != 60 {
 		t.Fatalf("status %+v", st)
 	}
 }
@@ -96,5 +96,22 @@ func TestPresets(t *testing.T) {
 	}
 	if r := call(t, eng, `{"jsonrpc":"2.0","method":"load_preset","params":{"id":"nope"},"id":3}`); r.Error == nil {
 		t.Fatal("unknown preset should fail")
+	}
+}
+
+func TestTimelineIsStretched(t *testing.T) {
+	eng := engine.NewEngine()
+	if r := call(t, eng, `{"jsonrpc":"2.0","method":"get_timeline","id":1}`); r.Error == nil {
+		t.Fatal("get_timeline without a session should fail")
+	}
+	loadTestConfig(t, eng)
+	call(t, eng, `{"jsonrpc":"2.0","method":"set_stretch","params":{"factor":2},"id":2}`)
+	r := call(t, eng, `{"jsonrpc":"2.0","method":"get_timeline","id":3}`)
+	var tl engine.Timeline
+	if r.Error != nil || json.Unmarshal(r.Result, &tl) != nil {
+		t.Fatalf("get_timeline: %+v %s", r.Error, r.Result)
+	}
+	if tl.TotalDuration != 120 || tl.Name != "c" || len(tl.Changes) != 2 || tl.Changes[1].Time != 120 || tl.Changes[1].Frequency != 200 {
+		t.Fatalf("timeline %+v", tl)
 	}
 }

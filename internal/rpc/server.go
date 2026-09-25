@@ -126,6 +126,14 @@ func handleRequest(eng *engine.Engine, req Request) Response {
 		}
 		resp.Result = info
 
+	case "get_timeline":
+		timeline, err := eng.Timeline()
+		if err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = timeline
+
 	case "list_presets":
 		list, err := presets.List()
 		if err != nil {

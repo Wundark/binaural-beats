@@ -52,11 +52,15 @@
       </div>
 
       <div class="progress-container">
-        <div id="progress-bar" class="progress-bar" title="Click to seek">
-          <div id="progress-fill" class="progress-fill"></div>
+        <div class="timeline-legend" aria-hidden="true">
+          <span class="legend-beat">Beat frequency</span>
+          <span class="legend-tone">Tone volume</span>
+          <span class="legend-noise">Pink noise volume</span>
         </div>
+        <canvas id="timeline" class="timeline" title="Click to seek"></canvas>
         <div class="progress-time">
           <span id="time-elapsed">0:00</span>
+          <span id="timeline-hover" class="timeline-hover"></span>
           <span id="time-total">/ 0:00</span>
         </div>
       </div>
