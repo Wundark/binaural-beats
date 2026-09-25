@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 ### App
 - Playlists: queue sessions and play them one after another with an equal-power crossfade (0 to 60 seconds), optionally repeating. Tap a playlist session to load it, or while playing, to crossfade to it. The playlist is kept between launches and can be exported as one WAV file.

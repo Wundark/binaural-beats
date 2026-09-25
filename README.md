@@ -8,7 +8,7 @@ Binaural beats are auditory illusions perceived when two slightly different freq
 
 It comes as an app for Windows, macOS, Linux and Android, and as command-line tools. See [Downloads](#downloads).
 
-![The app playing the Meditation session, with its timeline of beat frequency over the brainwave bands](docs/screenshot.png)
+![The app playing the Meditation session from a playlist, with its timeline of beat frequency over the brainwave bands](docs/screenshot.png)
 
 ---
 
