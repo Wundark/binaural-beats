@@ -70,6 +70,17 @@ go run cmd/converter/main.go -input insomniac.sbg -output config/insomniac.yaml
 
 * `-input` - Path to the SBG file
 * `-output` - (OPTIONAL) Path to YAML output (default output to stdout)
+* `-fade` - (OPTIONAL) Seconds to fade between tone-sets, like SBaGen's `-F` (default 60)
+
+#### How SBaGen timing is converted
+
+- Each tone-set is held until the next time-sequence line, then faded into the next tone-set over `-fade` seconds (shortened when the following line comes sooner).
+- A line ending in `->` slides gradually into the next line's tone-set over the whole interval instead.
+- Times relative to `NOW` start at 0. `NOW+hh:mm` and `+hh:mm` are offsets from the last `NOW` or clock time.
+- Clock times (`22:00`) are converted relative to the first clock time, wrapping past midnight. A file cannot mix `NOW` and clock times.
+- Fading to or from an off tone-set (`-`) changes only the volume, not the pitch.
+- `carrier-beat` puts the lower frequency in the right ear and becomes a negative `beat_frequency`.
+- Only one binaural tone per tone-set is supported. Amplitudes above 100% are clamped, with a warning.
 
 ---
 
@@ -90,11 +101,13 @@ frequency_changes:
 
 ### **Parameter Descriptions**
 
-- **time**: The point in time (in seconds) when the specified settings take effect. The time should be in ascending order.
-- **frequency**: The base frequency of the tone in Hertz (Hz).
-- **beat_frequency**: The frequency difference between the left and right channels, creating the binaural beat effect.
+- **time**: The point in time (in seconds) when the specified settings take effect. Settings change linearly between consecutive entries, and the last entry's time is when playback ends, so a session needs at least one entry with a time greater than 0. Entries are sorted by time; entries with equal times keep their order, which gives an instant change.
+- **frequency**: The base frequency of the tone in Hertz (Hz), heard in the left ear.
+- **beat_frequency**: The frequency difference between the left and right channels, creating the binaural beat effect. The right ear hears `frequency + beat_frequency`, so a negative value puts the lower tone on the right.
 - **pink_noise_volume**: The volume level of the pink noise, ranging from 0.0 (silent) to 1.0 (maximum volume).
 - **tone_volume**: The volume level of the tone, ranging from 0.0 to 1.0.
+
+Configs are checked when loaded: unknown keys (such as a misspelled `frequency_changes`), negative times or frequencies, and volumes outside 0.0 to 1.0 are rejected with an error naming the entry.
 
 ### **Example Configuration**
 

@@ -1,7 +1,10 @@
 package engine
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"os"
@@ -151,13 +154,64 @@ func ParseConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true) // reject misspelled keys instead of ignoring them
+	if err := dec.Decode(&cfg); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("config file is empty")
+		}
 		return nil, err
 	}
-	sort.Slice(cfg.FrequencyChanges, func(i, j int) bool {
+	// Stable, so entries sharing a time keep their order (an instant change).
+	sort.SliceStable(cfg.FrequencyChanges, func(i, j int) bool {
 		return cfg.FrequencyChanges[i].Time < cfg.FrequencyChanges[j].Time
 	})
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+// Validate checks that the config describes a playable session. It expects
+// the changes to be sorted by time.
+func (c *Config) Validate() error {
+	changes := c.FrequencyChanges
+	if len(changes) == 0 {
+		return fmt.Errorf("config has no frequency_changes entries")
+	}
+	for i, fc := range changes {
+		n := i + 1
+		for _, v := range []struct {
+			name string
+			val  float64
+		}{
+			{"time", fc.Time},
+			{"frequency", fc.Frequency},
+			{"beat_frequency", fc.BeatFrequency},
+			{"pink_noise_volume", fc.PinkNoiseVolume},
+			{"tone_volume", fc.ToneVolume},
+		} {
+			if math.IsNaN(v.val) || math.IsInf(v.val, 0) {
+				return fmt.Errorf("frequency_changes entry %d: %s must be a finite number", n, v.name)
+			}
+		}
+		if fc.Time < 0 {
+			return fmt.Errorf("frequency_changes entry %d: time must not be negative (got %g)", n, fc.Time)
+		}
+		if fc.Frequency < 0 {
+			return fmt.Errorf("frequency_changes entry %d: frequency must not be negative (got %g)", n, fc.Frequency)
+		}
+		if fc.ToneVolume < 0 || fc.ToneVolume > 1 {
+			return fmt.Errorf("frequency_changes entry %d: tone_volume must be between 0 and 1 (got %g)", n, fc.ToneVolume)
+		}
+		if fc.PinkNoiseVolume < 0 || fc.PinkNoiseVolume > 1 {
+			return fmt.Errorf("frequency_changes entry %d: pink_noise_volume must be between 0 and 1 (got %g)", n, fc.PinkNoiseVolume)
+		}
+	}
+	if changes[len(changes)-1].Time <= 0 {
+		return fmt.Errorf("session has no length: the last frequency_changes entry sets when playback ends, so its time must be greater than 0")
+	}
+	return nil
 }
 
 func CreateFreqFunc(changes []FrequencyChange) func(t float64) float64 {
