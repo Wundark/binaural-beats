@@ -23,17 +23,67 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
 }
 
+.hidden {
+  display: none !important;
+}
+
+/* The insets keep content clear of notches and system bars where the web view
+   reports them (Android pads the web view itself; see MainActivity.kt). */
 .container {
   max-width: 720px;
   margin: 0 auto;
-  padding: 24px;
+  padding: calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right))
+    calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
 }
 
 header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.header-text {
+  flex: 1;
   text-align: center;
-  margin-bottom: 32px;
+  padding-left: 44px; /* balances the settings button, keeping the title centred */
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.2s, color 0.2s;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.icon-btn.small {
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
 }
 
 header h1 {
@@ -118,6 +168,101 @@ section h2 {
 
 .btn-stop:hover:not(:disabled) {
   background: #e53935;
+}
+
+.btn-small {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-small:hover:not(:disabled) {
+  background: var(--border);
+}
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Playlist */
+.playlist-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.playlist {
+  list-style: none;
+  counter-reset: playlist;
+  margin-bottom: 12px;
+}
+
+.playlist-item {
+  counter-increment: playlist;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.playlist-item::before {
+  content: counter(playlist);
+  color: var(--text-secondary);
+  font-size: 12px;
+  min-width: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.playlist-item:hover {
+  border-color: var(--accent);
+}
+
+.playlist-item.current {
+  border-color: var(--accent);
+  background: rgba(108, 99, 255, 0.15);
+}
+
+.playlist-item.playing::before {
+  content: "▶";
+  color: var(--success);
+}
+
+.playlist-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-duration {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.playlist-actions {
+  display: flex;
 }
 
 /* Session section */
@@ -248,6 +393,22 @@ section h2 {
 
 .timeline.seekable {
   cursor: pointer;
+  /* Horizontal drags scrub; vertical ones still scroll the page. */
+  touch-action: pan-y;
+}
+
+.seek-slider {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  accent-color: var(--accent);
+}
+
+.nudge-controls {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .timeline-legend {
@@ -353,10 +514,79 @@ section h2 {
   margin-top: 8px;
 }
 
+/* Settings */
+.settings {
+  margin: auto;
+  width: min(420px, calc(100vw - 32px));
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.settings::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.settings h2 {
+  font-size: 18px;
+  margin-bottom: 16px;
+}
+
+.setting {
+  display: block;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.setting-row input {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.setting-value {
+  min-width: 40px;
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.setting.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.setting.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.settings-version {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
 /* Message bar */
 .message-bar {
   position: fixed;
-  bottom: 20px;
+  bottom: calc(20px + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   padding: 12px 24px;
@@ -380,4 +610,22 @@ section h2 {
 .message-bar.error {
   background: var(--danger);
   color: white;
+}
+
+/* Phones */
+@media (max-width: 480px) {
+  .container {
+    padding-left: calc(12px + env(safe-area-inset-left));
+    padding-right: calc(12px + env(safe-area-inset-right));
+  }
+
+  section {
+    padding: 16px;
+  }
+
+  .playback-controls .btn {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 8px;
+  }
 }

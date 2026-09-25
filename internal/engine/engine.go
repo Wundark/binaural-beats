@@ -24,9 +24,9 @@ import (
 
 // Config represents the structure of the YAML configuration file.
 type Config struct {
-	Name             string            `yaml:"name,omitempty"`
-	Description      string            `yaml:"description,omitempty"`
-	FrequencyChanges []FrequencyChange `yaml:"frequency_changes"`
+	Name             string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Description      string            `yaml:"description,omitempty" json:"description,omitempty"`
+	FrequencyChanges []FrequencyChange `yaml:"frequency_changes" json:"frequency_changes"`
 }
 
 // SessionInfo describes a loaded session.
@@ -58,6 +58,11 @@ type Status struct {
 	Volume          float64 `json:"volume"`
 	Stretch         float64 `json:"stretch"`
 	ConfigLoaded    bool    `json:"config_loaded"`
+	// PlaylistIndex is the loaded session's place in the playlist, or -1.
+	PlaylistIndex int `json:"playlist_index"`
+	// Remaining is the time left until playback ends, including the rest of
+	// the playlist, or -1 if the playlist loops.
+	Remaining float64 `json:"remaining"`
 }
 
 // PinkNoise implements a pink noise generator using the Voss-McCartney algorithm.
@@ -429,11 +434,36 @@ func GetTotalPlaybackTime(changes []FrequencyChange) float64 {
 // sampleRate is the rate sessions are generated at.
 const sampleRate = beep.SampleRate(44100)
 
+// samples converts a duration in seconds to samples.
+func samples(seconds float64) int {
+	return sampleRate.N(time.Duration(seconds * float64(time.Second)))
+}
+
 // newStream creates the audio stream from the current config state. The
 // caller must hold e.Mu.
 func (e *Engine) newStream() *BinauralStream {
-	total := sampleRate.N(time.Duration(e.totalDuration * float64(time.Second)))
-	return NewBinauralStream(sampleRate, e.changes, total, NewPinkNoise())
+	return NewBinauralStream(sampleRate, e.changes, samples(e.totalDuration), NewPinkNoise())
+}
+
+// stretch returns cfg's changes with their times scaled by factor.
+func stretch(cfg *Config, factor float64) []FrequencyChange {
+	changes := make([]FrequencyChange, len(cfg.FrequencyChanges))
+	copy(changes, cfg.FrequencyChanges)
+	for i := range changes {
+		changes[i].Time *= factor
+	}
+	return changes
+}
+
+// playItems returns the playlist, stretched, ready to play. The caller must
+// hold e.Mu.
+func (e *Engine) playItems() []playItem {
+	items := make([]playItem, len(e.playlist))
+	for i, cfg := range e.playlist {
+		changes := stretch(cfg, e.stretch)
+		items[i] = playItem{changes: changes, total: samples(GetTotalPlaybackTime(changes))}
+	}
+	return items
 }
 
 // Engine manages the audio generation and playback lifecycle.
@@ -443,9 +473,9 @@ type Engine struct {
 	stretch       float64
 	IsPlaying     bool
 	Done          chan struct{}
-	stream        *BinauralStream // the stream being played, while IsPlaying
-	volume        float64         // master volume for playback, 0 to 1
-	startAt       float64         // where the next Play starts, in seconds
+	player        *sequence // what is being played, while IsPlaying
+	volume        float64   // master volume for playback, 0 to 1
+	startAt       float64   // where the next Play starts, in seconds
 	baseFreqFunc  func(float64) float64
 	beatFreqFunc  func(float64) float64
 	volumeFunc    func(float64) float64
@@ -453,10 +483,21 @@ type Engine struct {
 	changes       []FrequencyChange
 	totalDuration float64
 	playID        uint64
+
+	playlist  []*Config
+	plIndex   int     // the loaded session's index in playlist, or -1
+	crossfade float64 // seconds of overlap between playlist sessions
+	loop      bool    // start the playlist again after its last session
 }
 
+// DefaultCrossfade is the initial crossfade between playlist sessions, in seconds.
+const DefaultCrossfade = 10
+
+// MaxCrossfade is the longest crossfade allowed, in seconds.
+const MaxCrossfade = 120
+
 func NewEngine() *Engine {
-	return &Engine{stretch: 1.0, volume: 1.0}
+	return &Engine{stretch: 1.0, volume: 1.0, plIndex: -1, crossfade: DefaultCrossfade}
 }
 
 // LoadConfig loads a session file (YAML or SBaGen).
@@ -486,6 +527,7 @@ func (e *Engine) load(cfg *Config) (SessionInfo, error) {
 	}
 
 	e.config = cfg
+	e.plIndex = -1
 	e.startAt = 0
 	e.applyStretch()
 	return e.sessionInfo(), nil
@@ -501,6 +543,7 @@ type Timeline struct {
 func (e *Engine) Timeline() (Timeline, error) {
 	e.Mu.Lock()
 	defer e.Mu.Unlock()
+	e.syncPlaying()
 	if e.config == nil {
 		return Timeline{}, fmt.Errorf("no config loaded")
 	}
@@ -518,11 +561,7 @@ func (e *Engine) applyStretch() {
 	if e.config == nil {
 		return
 	}
-	changes := make([]FrequencyChange, len(e.config.FrequencyChanges))
-	copy(changes, e.config.FrequencyChanges)
-	for i := range changes {
-		changes[i].Time *= e.stretch
-	}
+	changes := stretch(e.config, e.stretch)
 	e.baseFreqFunc = CreateFreqFunc(changes)
 	e.beatFreqFunc = CreateBeatFreqFunc(changes)
 	e.volumeFunc = CreateVolumeFunc(changes)
@@ -555,7 +594,7 @@ func (e *Engine) Pause() error {
 	if !e.IsPlaying {
 		return fmt.Errorf("not playing")
 	}
-	e.stream.Pause()
+	e.player.Pause()
 	return nil
 }
 
@@ -566,7 +605,7 @@ func (e *Engine) Resume() error {
 	if !e.IsPlaying {
 		return fmt.Errorf("not playing")
 	}
-	e.stream.Resume()
+	e.player.Resume()
 	return nil
 }
 
@@ -575,6 +614,7 @@ func (e *Engine) Resume() error {
 func (e *Engine) Seek(t float64) error {
 	e.Mu.Lock()
 	defer e.Mu.Unlock()
+	e.syncPlaying()
 	if e.config == nil {
 		return fmt.Errorf("no config loaded")
 	}
@@ -583,7 +623,7 @@ func (e *Engine) Seek(t float64) error {
 	}
 	t = math.Max(0, math.Min(t, e.totalDuration))
 	if e.IsPlaying {
-		e.stream.Seek(sampleRate.N(time.Duration(t * float64(time.Second))))
+		e.player.Seek(samples(t))
 	} else {
 		e.startAt = t
 	}
@@ -599,7 +639,7 @@ func (e *Engine) SetVolume(v float64) error {
 	defer e.Mu.Unlock()
 	e.volume = v
 	if e.IsPlaying {
-		e.stream.SetVolume(v)
+		e.player.SetVolume(v)
 	}
 	return nil
 }
@@ -607,12 +647,14 @@ func (e *Engine) SetVolume(v float64) error {
 func (e *Engine) GetStatus() Status {
 	e.Mu.Lock()
 	defer e.Mu.Unlock()
+	e.syncPlaying()
 
 	s := Status{
-		IsPlaying:    e.IsPlaying,
-		Volume:       e.volume,
-		Stretch:      e.stretch,
-		ConfigLoaded: e.config != nil,
+		IsPlaying:     e.IsPlaying,
+		Volume:        e.volume,
+		Stretch:       e.stretch,
+		ConfigLoaded:  e.config != nil,
+		PlaylistIndex: e.plIndex,
 	}
 	if e.config == nil {
 		return s
@@ -620,10 +662,18 @@ func (e *Engine) GetStatus() Status {
 	s.TotalDuration = e.totalDuration
 	t := e.startAt
 	if e.IsPlaying {
-		t = float64(e.stream.Position()) / float64(sampleRate)
-		s.IsPaused = e.stream.Paused()
+		t = float64(e.player.Position()) / float64(sampleRate)
+		s.IsPaused = e.player.Paused()
 	}
 	t = math.Min(t, e.totalDuration)
+	s.Remaining = e.totalDuration - t
+	if e.IsPlaying {
+		if r := e.player.Remaining(); r >= 0 {
+			s.Remaining = float64(r) / float64(sampleRate)
+		} else {
+			s.Remaining = -1
+		}
+	}
 	s.Time = t
 	s.Frequency = e.baseFreqFunc(t)
 	s.BeatFrequency = e.beatFreqFunc(t)
@@ -659,7 +709,29 @@ func (e *Engine) ExportWAV(outputPath string) error {
 	}
 	stream := e.newStream()
 	e.Mu.Unlock()
+	return writeWAV(outputPath, stream)
+}
 
+// ExportPlaylistWAV writes the whole playlist, with its crossfades, to a WAV
+// file. It does not loop.
+func (e *Engine) ExportPlaylistWAV(outputPath string) error {
+	e.Mu.Lock()
+	if e.IsPlaying {
+		e.Mu.Unlock()
+		return fmt.Errorf("cannot export while playing")
+	}
+	if len(e.playlist) == 0 {
+		e.Mu.Unlock()
+		return fmt.Errorf("the playlist is empty")
+	}
+	items := e.playItems()
+	first := NewBinauralStream(sampleRate, items[0].changes, items[0].total, NewPinkNoise())
+	seq := newSequence(first, items, 0, false, samples(e.crossfade), 1)
+	e.Mu.Unlock()
+	return writeWAV(outputPath, seq)
+}
+
+func writeWAV(outputPath string, stream beep.Streamer) error {
 	outFile, err := os.Create(outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)

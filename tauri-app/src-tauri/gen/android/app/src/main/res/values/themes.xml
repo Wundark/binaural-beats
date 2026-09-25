@@ -1,6 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.binaural_beats" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- The page background, shown behind the system bars. -->
+        <item name="android:windowBackground">@color/page_background</item>
     </style>
 </resources>

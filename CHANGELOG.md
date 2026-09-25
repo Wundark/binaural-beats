@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### App
+- Playlists: queue sessions and play them one after another with an equal-power crossfade (0 to 60 seconds), optionally repeating. Tap a playlist session to load it, or while playing, to crossfade to it. The playlist is kept between launches and can be exported as one WAV file.
+- Settings: crossfade length, repeat, keeping the playlist, and showing the status panel. The volume is remembered between launches.
+- The timeline can be tapped or dragged to seek on touch screens, showing the time and beat frequency under your finger, without long-press selecting it. A position slider and -1m, -10s, +10s and +1m buttons allow fine adjustment.
+- WAV exports are named after the session (for example `focus.wav`).
+- Android: the app no longer draws under the status and navigation bars or display cutouts.
+
 ## 0.1.0
 
 First test release of the app for desktop and Android, alongside the command-line player and converter. Expect rough edges; please report problems as GitHub issues.

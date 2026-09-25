@@ -56,6 +56,25 @@ type SetVolumeParams struct {
 	Volume float64 `json:"volume"`
 }
 
+type PlaylistAddParams struct {
+	// Config is the session to add; without it, the loaded session is added.
+	Config *engine.Config `json:"config,omitempty"`
+}
+
+type PlaylistIndexParams struct {
+	Index int `json:"index"`
+}
+
+type PlaylistMoveParams struct {
+	From int `json:"from"`
+	To   int `json:"to"`
+}
+
+type PlaylistOptionsParams struct {
+	Crossfade float64 `json:"crossfade"`
+	Loop      bool    `json:"loop"`
+}
+
 // ProcessRequest handles a single JSON-RPC request string and returns a JSON response string.
 // This is the core handler used by both the stdin/stdout server and FFI bindings.
 func ProcessRequest(eng *engine.Engine, requestJSON string) string {
@@ -235,9 +254,72 @@ func handleRequest(eng *engine.Engine, req Request) Response {
 		}
 		resp.Result = map[string]interface{}{"ok": true}
 
+	case "get_playlist":
+		resp.Result = eng.Playlist()
+
+	case "playlist_add":
+		var params PlaylistAddParams
+		if len(req.Params) > 0 && !decode(req, &params, &resp) {
+			return resp
+		}
+		result(&resp)(eng.PlaylistAdd(params.Config))
+
+	case "playlist_remove":
+		var params PlaylistIndexParams
+		if decode(req, &params, &resp) {
+			result(&resp)(eng.PlaylistRemove(params.Index))
+		}
+
+	case "playlist_move":
+		var params PlaylistMoveParams
+		if decode(req, &params, &resp) {
+			result(&resp)(eng.PlaylistMove(params.From, params.To))
+		}
+
+	case "playlist_clear":
+		resp.Result = eng.PlaylistClear()
+
+	case "playlist_select":
+		var params PlaylistIndexParams
+		if decode(req, &params, &resp) {
+			result(&resp)(eng.PlaylistSelect(params.Index))
+		}
+
+	case "set_playlist_options":
+		var params PlaylistOptionsParams
+		if decode(req, &params, &resp) {
+			result(&resp)(eng.Playlist(), eng.SetPlaylistOptions(params.Crossfade, params.Loop))
+		}
+
+	case "export_playlist_wav":
+		var params ExportWAVParams
+		if decode(req, &params, &resp) {
+			result(&resp)(map[string]interface{}{"ok": true}, eng.ExportPlaylistWAV(params.Path))
+		}
+
 	default:
 		resp.Error = &RPCError{Code: -32601, Message: "Method not found: " + req.Method}
 	}
 
 	return resp
+}
+
+// decode unmarshals the request's params, or sets an invalid params error.
+func decode(req Request, params interface{}, resp *Response) bool {
+	if err := json.Unmarshal(req.Params, params); err != nil {
+		resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
+		return false
+	}
+	return true
+}
+
+// result returns a function that sets resp from a value and error.
+func result(resp *Response) func(interface{}, error) {
+	return func(v interface{}, err error) {
+		if err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return
+		}
+		resp.Result = v
+	}
 }

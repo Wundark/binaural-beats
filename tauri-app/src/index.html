@@ -2,15 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Binaural Beats</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>Binaural Beats</h1>
-      <p class="subtitle">Brainwave Entrainment Generator</p>
+      <div class="header-text">
+        <h1>Binaural Beats</h1>
+        <p class="subtitle">Brainwave Entrainment Generator</p>
+      </div>
+      <button id="btn-settings" class="icon-btn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7 7 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2.4h-3.84a.5.5 0 0 0-.49.42l-.36 2.54a7 7 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.61.22L2.66 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.61.22l2.39-.96c.5.38 1.05.7 1.63.94l.36 2.54c.04.24.25.42.49.42h3.84c.24 0 .45-.18.49-.42l.36-2.54a7 7 0 0 0 1.63-.94l2.39.96c.22.08.48 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/></svg>
+      </button>
     </header>
 
     <section class="config-section">
@@ -25,6 +30,20 @@
       <div id="preset-list" class="preset-list"></div>
       <div class="config-controls">
         <button id="btn-load" class="btn btn-secondary">Open File&hellip;</button>
+        <button id="btn-queue" class="btn btn-secondary" disabled>Add to Playlist</button>
+      </div>
+    </section>
+
+    <section class="playlist-section">
+      <div class="section-title">
+        <h2>Playlist</h2>
+        <span id="playlist-summary" class="section-note"></span>
+      </div>
+      <p id="playlist-empty" class="playlist-empty">Add sessions to play them one after another, crossfading between them.</p>
+      <ol id="playlist" class="playlist"></ol>
+      <div id="playlist-controls" class="config-controls hidden">
+        <button id="btn-export-playlist" class="btn btn-secondary">Export Playlist</button>
+        <button id="btn-clear-playlist" class="btn btn-secondary">Clear</button>
       </div>
     </section>
 
@@ -58,10 +77,17 @@
           <span class="legend-noise">Pink noise volume</span>
         </div>
         <canvas id="timeline" class="timeline"></canvas>
+        <input type="range" id="seek-slider" class="seek-slider" min="0" max="0" step="1" value="0" disabled aria-label="Position" />
         <div class="progress-time">
           <span id="time-elapsed">0:00</span>
           <span id="timeline-hover" class="timeline-hover"></span>
           <span id="time-total">/ 0:00</span>
+        </div>
+        <div class="nudge-controls">
+          <button class="btn btn-small" data-nudge="-60" disabled>&minus;1m</button>
+          <button class="btn btn-small" data-nudge="-10" disabled>&minus;10s</button>
+          <button class="btn btn-small" data-nudge="10" disabled>+10s</button>
+          <button class="btn btn-small" data-nudge="60" disabled>+1m</button>
         </div>
       </div>
     </section>
@@ -92,6 +118,35 @@
 
     <div id="message-bar" class="message-bar hidden"></div>
   </div>
+
+  <dialog id="settings" class="settings">
+    <form method="dialog">
+      <h2>Settings</h2>
+      <div class="setting">
+        <label for="setting-crossfade">Crossfade between playlist sessions</label>
+        <div class="setting-row">
+          <input type="range" id="setting-crossfade" min="0" max="60" step="1" value="10" />
+          <span id="setting-crossfade-value" class="setting-value">10 s</span>
+        </div>
+      </div>
+      <label class="setting check">
+        <input type="checkbox" id="setting-repeat" />
+        <span>Repeat the playlist</span>
+      </label>
+      <label class="setting check">
+        <input type="checkbox" id="setting-keep-playlist" checked />
+        <span>Keep the playlist between launches</span>
+      </label>
+      <label class="setting check">
+        <input type="checkbox" id="setting-show-status" checked />
+        <span>Show the status panel</span>
+      </label>
+      <p id="settings-version" class="settings-version"></p>
+      <div class="settings-actions">
+        <button class="btn btn-primary" value="close">Done</button>
+      </div>
+    </form>
+  </dialog>
 
   <script type="module" src="main.js"></script>
 </body>

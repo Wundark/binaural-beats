@@ -4,10 +4,10 @@ package engine
 
 import (
 	"fmt"
-	"time"
 )
 
-// Play starts real-time audio playback. On Android this requires CGO (Oboe).
+// Play starts real-time audio playback. If the loaded session is in the
+// playlist, the rest of the playlist follows it.
 func (e *Engine) Play() error {
 	e.Mu.Lock()
 	defer e.Mu.Unlock()
@@ -31,14 +31,13 @@ func (e *Engine) Play() error {
 	e.IsPlaying = true
 
 	stream := e.newStream()
-	stream.setVolumeNow(e.volume)
-	stream.Seek(sampleRate.N(time.Duration(e.startAt * float64(time.Second))))
+	stream.Seek(samples(e.startAt))
 	e.startAt = 0
-	e.stream = stream
+	e.player = newSequence(stream, e.playItems(), e.plIndex, e.loop, samples(e.crossfade), e.volume)
 
 	// onEnd runs on its own goroutine, so it never waits on e.Mu while the
 	// output holds its lock (Stop holds e.Mu and takes the output lock).
-	out.Play(stream, func() { e.finish(id) })
+	out.Play(e.player, func() { e.finish(id) })
 	return nil
 }
 
@@ -49,12 +48,10 @@ func (e *Engine) finish(id uint64) {
 	if e.playID != id || !e.IsPlaying {
 		return
 	}
-	e.IsPlaying = false
-	e.stream = nil
-	close(e.Done)
+	e.stopLocked()
 }
 
-// Stop stops audio playback.
+// Stop stops audio playback. The session that was playing stays loaded.
 func (e *Engine) Stop() error {
 	e.Mu.Lock()
 	defer e.Mu.Unlock()
@@ -66,8 +63,13 @@ func (e *Engine) Stop() error {
 	if out, err := audioOutput(); err == nil {
 		out.Clear()
 	}
-	e.IsPlaying = false
-	e.stream = nil
-	close(e.Done)
+	e.stopLocked()
 	return nil
+}
+
+func (e *Engine) stopLocked() {
+	e.syncPlaying()
+	e.IsPlaying = false
+	e.player = nil
+	close(e.Done)
 }

@@ -1,5 +1,6 @@
 // Session timeline: the beat frequency over the brainwave bands, the tone and
-// pink noise volumes below it, and a playhead. Clicking seeks.
+// pink noise volumes below it, and a playhead. Clicking or dragging (mouse or
+// touch) seeks.
 
 const BANDS = [
   { name: "Delta", from: 0, to: 4 },
@@ -47,22 +48,58 @@ export class Timeline {
     this.data = null;
     this.time = 0;
     this.hoverX = null;
+    this.preview = null; // time shown by the playhead while scrubbing
+    this.dragging = null; // pointer id of a drag in progress
 
     new ResizeObserver(() => this.draw()).observe(canvas);
-    canvas.addEventListener("click", (e) => {
+    canvas.addEventListener("pointerdown", (e) => {
+      if (!this.data || (e.pointerType === "mouse" && e.button !== 0)) return;
+      this.dragging = e.pointerId;
+      canvas.setPointerCapture(e.pointerId);
+      this.scrub(e);
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (this.dragging === null && e.pointerType !== "mouse") return;
+      this.scrub(e);
+    });
+    canvas.addEventListener("pointerup", (e) => {
+      if (this.dragging !== e.pointerId) return;
       const t = this.timeAtEvent(e);
+      this.endDrag(e.pointerType !== "mouse");
       if (t !== null) this.onSeek(t);
     });
-    canvas.addEventListener("mousemove", (e) => {
-      this.hoverX = e.offsetX;
-      this.reportHover();
-      this.draw();
+    // A touch that turns into a page scroll cancels the drag.
+    canvas.addEventListener("pointercancel", () => this.endDrag(true));
+    canvas.addEventListener("pointerleave", (e) => {
+      if (e.pointerType === "mouse" && this.dragging === null) this.endDrag(true);
     });
-    canvas.addEventListener("mouseleave", () => {
+    // Long-press would otherwise open a context menu on touch screens.
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
+  // Follow the pointer: hover details, and while dragging, the playhead.
+  scrub(e) {
+    this.hoverX = e.offsetX;
+    if (this.dragging !== null) this.preview = this.timeAtEvent(e);
+    this.reportHover();
+    this.draw();
+  }
+
+  endDrag(clearHover) {
+    this.dragging = null;
+    this.preview = null;
+    if (clearHover) {
       this.hoverX = null;
       this.onHover(null);
-      this.draw();
-    });
+    }
+    this.draw();
+  }
+
+  // Show the playhead at t (or back at the playing time, for null) without
+  // seeking, e.g. while a slider is dragged.
+  setPreview(t) {
+    this.preview = t;
+    this.draw();
   }
 
   setData(timeline) {
@@ -176,7 +213,7 @@ export class Timeline {
     }
 
     // Elapsed shading
-    const px = x(Math.min(this.time, total));
+    const px = x(Math.min(this.preview ?? this.time, total));
     ctx.fillStyle = "rgba(108,99,255,0.10)";
     ctx.fillRect(PAD.left, beatTop, px - PAD.left, beatH);
     ctx.fillRect(PAD.left, laneTop, px - PAD.left, laneH);
