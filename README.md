@@ -49,6 +49,8 @@ go run cmd/binaural-beats/main.go -config example_config/insomniac.yaml
 * `-config` - Path to the YAML config
 * `-output` - (OPTIONAL) Path for the WAV to be saved
 * `-stretch` - (OPTIONAL) Stretch factor for playback time (default 1.0)
+* `-volume` - (OPTIONAL) Playback volume from 0 to 1 (default 1.0; exports are always full volume)
+* `-start` - (OPTIONAL) Start playback this many seconds into the session
 
 ### **Export a config to WAV**
 
@@ -261,7 +263,11 @@ This reads newline-delimited JSON-RPC requests from stdin and writes responses t
 | `load_config` | `{"path": "config.yaml"}` | Load a YAML configuration file |
 | `play` | — | Start real-time playback |
 | `stop` | — | Stop playback |
-| `get_status` | — | Get current playback status |
+| `pause` | — | Pause playback, keeping the position |
+| `resume` | — | Resume paused playback |
+| `seek` | `{"time": 600}` | Jump to a position in seconds (when stopped, sets where `play` starts) |
+| `set_volume` | `{"volume": 0.5}` | Set the playback volume from 0 to 1 (exports are unaffected) |
+| `get_status` | — | Get current playback status, including `is_paused` and `volume` |
 | `export_wav` | `{"path": "output.wav"}` | Export session to WAV file |
 | `set_stretch` | `{"factor": 1.5}` | Set time stretch factor |
 

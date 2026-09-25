@@ -11,10 +11,6 @@ import (
 	"github.com/gopxl/beep/speaker"
 )
 
-// playbackSampleRate is the rate the speaker is initialised with. Beep's speaker
-// can only be initialised once per process, so every stream must use this rate.
-const playbackSampleRate = beep.SampleRate(44100)
-
 // playbackBuffer is the total speaker buffer, split between driver and player.
 const playbackBuffer = 100 * time.Millisecond
 
@@ -25,7 +21,7 @@ var (
 
 func initSpeaker() error {
 	speakerOnce.Do(func() {
-		speakerErr = speaker.Init(playbackSampleRate, playbackSampleRate.N(playbackBuffer))
+		speakerErr = speaker.Init(sampleRate, sampleRate.N(playbackBuffer))
 	})
 	return speakerErr
 }
@@ -42,10 +38,6 @@ func (e *Engine) Play() error {
 		return fmt.Errorf("no config loaded")
 	}
 
-	mixedStreamer, sr := e.createMixer()
-	if sr != playbackSampleRate {
-		return fmt.Errorf("stream sample rate %d does not match speaker rate %d", sr, playbackSampleRate)
-	}
 	if err := initSpeaker(); err != nil {
 		return fmt.Errorf("failed to initialise audio output: %w", err)
 	}
@@ -55,9 +47,14 @@ func (e *Engine) Play() error {
 	done := make(chan struct{})
 	e.Done = done
 	e.IsPlaying = true
-	e.StartTime = time.Now()
 
-	speaker.Play(beep.Seq(mixedStreamer, beep.Callback(func() {
+	stream := e.newStream()
+	stream.setVolumeNow(e.volume)
+	stream.Seek(sampleRate.N(time.Duration(e.startAt * float64(time.Second))))
+	e.startAt = 0
+	e.stream = stream
+
+	speaker.Play(beep.Seq(stream, beep.Callback(func() {
 		// The callback runs with the speaker lock held; finish asynchronously so
 		// we never wait on e.Mu while Stop may hold it and wait on the speaker.
 		go e.finish(id)
@@ -74,6 +71,7 @@ func (e *Engine) finish(id uint64) {
 		return
 	}
 	e.IsPlaying = false
+	e.stream = nil
 	close(e.Done)
 }
 
@@ -90,6 +88,7 @@ func (e *Engine) Stop() error {
 	// blocks on e.Mu while holding it.
 	speaker.Clear()
 	e.IsPlaying = false
+	e.stream = nil
 	close(e.Done)
 	return nil
 }

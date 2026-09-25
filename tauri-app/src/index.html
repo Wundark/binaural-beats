@@ -38,8 +38,14 @@
         <button id="btn-export" class="btn btn-secondary" disabled>Export WAV</button>
       </div>
 
+      <div class="volume-controls">
+        <label for="volume-slider">Volume</label>
+        <input type="range" id="volume-slider" min="0" max="100" step="1" value="100" />
+        <span id="volume-value">100%</span>
+      </div>
+
       <div class="progress-container">
-        <div class="progress-bar">
+        <div id="progress-bar" class="progress-bar" title="Click to seek">
           <div id="progress-fill" class="progress-fill"></div>
         </div>
         <div class="progress-time">

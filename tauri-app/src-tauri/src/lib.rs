@@ -108,6 +108,8 @@ struct PlaybackStatus {
     pink_noise_volume: f64,
     total_duration: f64,
     is_playing: bool,
+    is_paused: bool,
+    volume: f64,
     config_loaded: bool,
 }
 
@@ -207,6 +209,36 @@ async fn stop(state: tauri::State<'_, BackendState>) -> Result<String, String> {
     let mut guard = state.lock().await;
     guard.call("stop", None).await?;
     Ok("Stopped".to_string())
+}
+
+#[tauri::command]
+async fn pause(state: tauri::State<'_, BackendState>) -> Result<(), String> {
+    state.lock().await.call("pause", None).await.map(|_| ())
+}
+
+#[tauri::command]
+async fn resume(state: tauri::State<'_, BackendState>) -> Result<(), String> {
+    state.lock().await.call("resume", None).await.map(|_| ())
+}
+
+#[tauri::command]
+async fn seek(state: tauri::State<'_, BackendState>, time: f64) -> Result<(), String> {
+    state
+        .lock()
+        .await
+        .call("seek", Some(serde_json::json!({ "time": time })))
+        .await
+        .map(|_| ())
+}
+
+#[tauri::command]
+async fn set_volume(state: tauri::State<'_, BackendState>, volume: f64) -> Result<(), String> {
+    state
+        .lock()
+        .await
+        .call("set_volume", Some(serde_json::json!({ "volume": volume })))
+        .await
+        .map(|_| ())
 }
 
 #[tauri::command]
@@ -388,6 +420,10 @@ pub fn run() {
             load_config,
             play,
             stop,
+            pause,
+            resume,
+            seek,
+            set_volume,
             get_status,
             export_wav,
             set_stretch,

@@ -15,6 +15,8 @@ func main() {
 	outputPath := flag.String("output", "", "Path to the output WAV file (if empty, audio will be played)")
 	stretchFactor := flag.Float64("stretch", 1.0, "Stretch factor for playback time (default 1.0)")
 	rpcMode := flag.Bool("rpc", false, "Start in JSON-RPC server mode (stdin/stdout)")
+	volume := flag.Float64("volume", 1.0, "Playback volume from 0 to 1 (playback only)")
+	start := flag.Float64("start", 0, "Start playback this many seconds into the session (after stretching)")
 	flag.Parse()
 
 	eng := engine.NewEngine()
@@ -49,6 +51,14 @@ func main() {
 	}
 
 	// Real-time playback
+	if err := eng.SetVolume(*volume); err != nil {
+		log.Fatalf("Error setting volume: %v", err)
+	}
+	if *start != 0 {
+		if err := eng.Seek(*start); err != nil {
+			log.Fatalf("Error setting start position: %v", err)
+		}
+	}
 	if err := eng.Play(); err != nil {
 		log.Fatalf("Error starting playback: %v", err)
 	}

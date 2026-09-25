@@ -172,6 +172,10 @@ section h2 {
   overflow: hidden;
 }
 
+.progress-bar.seekable {
+  cursor: pointer;
+}
+
 .progress-fill {
   height: 100%;
   background: var(--accent);
@@ -186,6 +190,29 @@ section h2 {
   font-size: 12px;
   color: var(--text-secondary);
   margin-top: 6px;
+}
+
+.volume-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+#volume-slider {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 6px;
+}
+
+#volume-value {
+  font-weight: 600;
+  min-width: 44px;
+  text-align: right;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Status grid */

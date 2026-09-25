@@ -43,6 +43,14 @@ type SetStretchParams struct {
 	Factor float64 `json:"factor"`
 }
 
+type SeekParams struct {
+	Time float64 `json:"time"`
+}
+
+type SetVolumeParams struct {
+	Volume float64 `json:"volume"`
+}
+
 // ProcessRequest handles a single JSON-RPC request string and returns a JSON response string.
 // This is the core handler used by both the stdin/stdout server and FFI bindings.
 func ProcessRequest(eng *engine.Engine, requestJSON string) string {
@@ -149,6 +157,44 @@ func handleRequest(eng *engine.Engine, req Request) Response {
 			return resp
 		}
 		if err := eng.SetStretch(params.Factor); err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = map[string]interface{}{"ok": true}
+
+	case "pause":
+		if err := eng.Pause(); err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = map[string]interface{}{"ok": true}
+
+	case "resume":
+		if err := eng.Resume(); err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = map[string]interface{}{"ok": true}
+
+	case "seek":
+		var params SeekParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
+			return resp
+		}
+		if err := eng.Seek(params.Time); err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
+			return resp
+		}
+		resp.Result = map[string]interface{}{"ok": true}
+
+	case "set_volume":
+		var params SetVolumeParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: " + err.Error()}
+			return resp
+		}
+		if err := eng.SetVolume(params.Volume); err != nil {
 			resp.Error = &RPCError{Code: -32000, Message: err.Error()}
 			return resp
 		}
