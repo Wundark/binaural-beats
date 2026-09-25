@@ -33,20 +33,8 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/binaural-beats"
+      "binaries/binaural-engine"
     ],
     "resources": []
-  },
-  "plugins": {
-    "shell": {
-      "sidecar": true,
-      "scope": [
-        {
-          "name": "binaries/binaural-beats",
-          "sidecar": true,
-          "args": true
-        }
-      ]
-    }
   }
 }

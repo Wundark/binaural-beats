@@ -22,9 +22,7 @@ mod ffi {
             if c_response.is_null() {
                 return Err("Null response from engine".to_string());
             }
-            let response = CStr::from_ptr(c_response)
-                .to_string_lossy()
-                .into_owned();
+            let response = CStr::from_ptr(c_response).to_string_lossy().into_owned();
             BinauralFreeString(c_response);
             Ok(response)
         }
@@ -60,10 +58,14 @@ mod sidecar {
                 .map_err(|e| format!("Flush sidecar stdin failed: {}", e))?;
 
             let mut line = String::new();
-            self.stdout
+            let n = self
+                .stdout
                 .read_line(&mut line)
                 .await
                 .map_err(|e| format!("Read from sidecar failed: {}", e))?;
+            if n == 0 {
+                return Err("Audio engine exited unexpectedly".to_string());
+            }
             Ok(line)
         }
     }
@@ -114,6 +116,9 @@ struct PlaybackStatus {
 struct Backend {
     #[cfg(not(target_os = "android"))]
     sidecar: Option<sidecar::Process>,
+    /// Why the sidecar could not be started, reported to the UI on each call.
+    #[cfg(not(target_os = "android"))]
+    sidecar_error: Option<String>,
     next_id: u64,
 }
 
@@ -124,6 +129,8 @@ impl Backend {
         Backend {
             #[cfg(not(target_os = "android"))]
             sidecar: None,
+            #[cfg(not(target_os = "android"))]
+            sidecar_error: None,
             next_id: 1,
         }
     }
@@ -145,8 +152,8 @@ impl Backend {
 
         let response_json = self.send_request(&request_json).await?;
 
-        let resp: RpcResponse = serde_json::from_str(&response_json)
-            .map_err(|e| format!("Invalid response: {}", e))?;
+        let resp: RpcResponse =
+            serde_json::from_str(&response_json).map_err(|e| format!("Invalid response: {}", e))?;
 
         if let Some(err) = resp.error {
             return Err(err.message);
@@ -162,8 +169,13 @@ impl Backend {
 
     #[cfg(not(target_os = "android"))]
     async fn send_request(&mut self, request_json: &str) -> Result<String, String> {
-        let proc = self.sidecar.as_mut().ok_or("Sidecar not running")?;
-        proc.call_rpc(request_json).await
+        match self.sidecar.as_mut() {
+            Some(proc) => proc.call_rpc(request_json).await,
+            None => Err(self
+                .sidecar_error
+                .clone()
+                .unwrap_or_else(|| "Audio engine is still starting".to_string())),
+        }
     }
 }
 
@@ -213,7 +225,10 @@ async fn export_wav(
     let engine_path = engine_writable_path(&app, &path)?;
     let mut guard = state.lock().await;
     guard
-        .call("export_wav", Some(serde_json::json!({ "path": engine_path })))
+        .call(
+            "export_wav",
+            Some(serde_json::json!({ "path": engine_path })),
+        )
         .await?;
     drop(guard);
     publish_export(&app, &engine_path, &path)?;
@@ -297,41 +312,57 @@ async fn set_stretch(state: tauri::State<'_, BackendState>, factor: f64) -> Resu
 
 // ─── App setup ───
 
+/// Name of the Go engine binary bundled via `bundle.externalBin`. Tauri
+/// installs it next to the app executable, without the target-triple suffix.
 #[cfg(not(target_os = "android"))]
-fn setup_desktop(app: &tauri::App, backend_state: BackendState) {
+const SIDECAR_NAME: &str = "binaural-engine";
+
+#[cfg(not(target_os = "android"))]
+fn sidecar_path() -> Result<std::path::PathBuf, String> {
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Cannot locate app executable: {}", e))?;
+    let dir = exe
+        .parent()
+        .ok_or("App executable has no parent directory")?;
+    Ok(dir.join(format!("{}{}", SIDECAR_NAME, std::env::consts::EXE_SUFFIX)))
+}
+
+#[cfg(not(target_os = "android"))]
+async fn spawn_sidecar() -> Result<sidecar::Process, String> {
     use tokio::io::BufReader;
 
-    let resource_path = app
-        .path()
-        .resource_dir()
-        .expect("Failed to get resource dir");
-    let sidecar_name = if cfg!(target_os = "windows") {
-        "binaural-beats.exe"
-    } else {
-        "binaural-beats"
-    };
-    let sidecar_path = resource_path.join("binaries").join(sidecar_name);
+    let path = sidecar_path()?;
+    let mut child = tokio::process::Command::new(&path)
+        .arg("-rpc")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| format!("Failed to start audio engine at {}: {}", path.display(), e))?;
 
+    let stdin = child.stdin.take().ok_or("Audio engine has no stdin")?;
+    let stdout = child.stdout.take().ok_or("Audio engine has no stdout")?;
+
+    Ok(sidecar::Process {
+        child,
+        stdin,
+        stdout: BufReader::new(stdout),
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+fn setup_desktop(backend_state: BackendState) {
     tauri::async_runtime::spawn(async move {
-        let mut child = tokio::process::Command::new(&sidecar_path)
-            .arg("-rpc")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
-            .spawn()
-            .unwrap_or_else(|e| panic!("Failed to spawn sidecar at {:?}: {}", sidecar_path, e));
-
-        let stdin = child.stdin.take().expect("Failed to get sidecar stdin");
-        let stdout = child.stdout.take().expect("Failed to get sidecar stdout");
-
-        let process = sidecar::Process {
-            child,
-            stdin,
-            stdout: BufReader::new(stdout),
-        };
-
+        let result = spawn_sidecar().await;
         let mut guard = backend_state.lock().await;
-        guard.sidecar = Some(process);
+        match result {
+            Ok(process) => guard.sidecar = Some(process),
+            Err(e) => {
+                eprintln!("{}", e);
+                guard.sidecar_error = Some(e);
+            }
+        }
     });
 }
 
@@ -340,7 +371,6 @@ pub fn run() {
     let backend_state: BackendState = Arc::new(Mutex::new(Backend::new()));
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup({
@@ -349,7 +379,7 @@ pub fn run() {
                 app.manage(state.clone());
 
                 #[cfg(not(target_os = "android"))]
-                setup_desktop(app, state);
+                setup_desktop(state);
 
                 Ok(())
             }

@@ -182,7 +182,7 @@ Pre-built binaries for all platforms are available on the [GitHub Releases](http
 
 ## **Desktop App (Tauri)**
 
-A cross-platform desktop GUI is available via Tauri. It communicates with the Go audio engine over JSON-RPC.
+A cross-platform desktop GUI is available via Tauri. It runs the Go audio engine as a sidecar process (`binaural-engine`, installed next to the app executable) and talks to it over JSON-RPC.
 
 ### **Prerequisites**
 
@@ -190,16 +190,18 @@ A cross-platform desktop GUI is available via Tauri. It communicates with the Go
 - [Rust](https://rustup.rs/) (stable)
 - Go 1.20+
 - Platform dependencies for Tauri: see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+- Linux: ALSA headers (`libasound2-dev`) for real-time playback
 
 ### **Build and Run**
 
 ```bash
-# Build the Go sidecar binary for your platform
+# Build the Go engine sidecar for your platform
+# (on Linux, cross-compiled sidecars cannot play audio, only export WAVs)
 ./scripts/build-sidecar.sh
 
 # Install frontend dependencies and launch dev mode
 cd tauri-app
-npm install
+npm ci
 npm run tauri dev
 ```
 

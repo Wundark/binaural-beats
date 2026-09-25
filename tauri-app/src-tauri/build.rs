@@ -15,7 +15,10 @@ fn main() {
         let lib_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
             .join("gen/android/app/src/main/jniLibs")
             .join(abi);
-        println!("cargo:rerun-if-changed={}", lib_dir.join("libbinaural.so").display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            lib_dir.join("libbinaural.so").display()
+        );
         println!("cargo:rustc-link-search=native={}", lib_dir.display());
         println!("cargo:rustc-link-lib=dylib=binaural");
     }
