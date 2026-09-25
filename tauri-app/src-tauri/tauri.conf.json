@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicokosi/tauri-v2/main/core/tauri-config-schema/schema.json",
   "productName": "Binaural Beats",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.wundark.binaural-beats",
   "build": {
     "frontendDist": "../src",
@@ -35,6 +35,14 @@
     "externalBin": [
       "binaries/binaural-engine"
     ],
-    "resources": []
+    "resources": [],
+    "macOS": {
+      "signingIdentity": "-"
+    },
+    "category": "Utility",
+    "shortDescription": "Binaural beats and pink noise sessions",
+    "longDescription": "Plays and exports binaural beat sessions with pink noise: a built-in session library, YAML and SBaGen session files, a timeline of the session, and pause, seek and volume control.",
+    "publisher": "Wundark",
+    "licenseFile": "../../LICENSE"
   }
 }

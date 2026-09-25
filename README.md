@@ -189,12 +189,22 @@ This example replicates the ["Insomniac" file](https://github.com/brainbang/sbag
 
 ## **Downloads**
 
-Pre-built binaries for all platforms are available on the [GitHub Releases](https://github.com/Wundark/binaural-beats/releases) page:
+Everything is on the [GitHub Releases](https://github.com/Wundark/binaural-beats/releases) page.
 
-- **Linux**: amd64, arm64, armv7 (plays through PulseAudio or PipeWire, falling back to ALSA)
-- **macOS**: Intel (amd64) and Apple Silicon (arm64)
-- **Windows**: amd64
-- **Android**: APK (arm64, armv7)
+**The app** (session library, timeline, pause/seek/volume):
+
+- **Windows**: `.msi` or the `-setup.exe` installer
+- **macOS**: `.dmg` for Apple Silicon (`aarch64`) or Intel (`x64`)
+- **Linux**: `.deb`, `.rpm` or `.AppImage`
+- **Android**: APK (arm64, armv7). Allow the notification permission so sessions keep playing with the screen off.
+
+**Command-line tools** (`binaural-beats` player and `converter`): archives for Linux (amd64, arm64, armv7), macOS (amd64, arm64) and Windows (amd64). On Linux they play through PulseAudio or PipeWire, falling back to ALSA.
+
+The installers are not signed by Apple or Microsoft yet, so the first launch shows a warning:
+
+- **macOS**: right-click the app and choose **Open**, then **Open** again (or allow it under System Settings → Privacy & Security).
+- **Windows**: in the SmartScreen dialog choose **More info → Run anyway**.
+- **Android**: allow installing apps from your browser or file manager. Uninstall a build signed with a different key (such as a PR test build) before installing a release.
 
 ---
 
@@ -310,10 +320,28 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-This triggers two workflows:
+This triggers three workflows:
 
-1. **Release** (`.github/workflows/release.yml`) — Builds desktop binaries for all platforms via GoReleaser and creates a GitHub Release with archives + checksums.
-2. **Android APK** (`.github/workflows/android.yml`) — Builds the Android APK via Tauri and uploads it to the same GitHub Release.
+1. **Release** (`.github/workflows/release.yml`) — Builds the command-line tools for all platforms via GoReleaser and creates a GitHub Release with archives + checksums.
+2. **Desktop App** (`.github/workflows/desktop.yml`) — Builds the app installers for Linux, macOS (Apple Silicon and Intel) and Windows and attaches them to the release.
+3. **Android APK** (`.github/workflows/android.yml`) — Builds the Android APK via Tauri and attaches it to the release.
+
+### **Release checklist**
+
+1. Set the version in `tauri-app/src-tauri/tauri.conf.json`, `tauri-app/src-tauri/Cargo.toml` and `tauri-app/package.json` (the tag should match, e.g. `v1.0.0` for `1.0.0`). The Android version code is derived from it.
+2. Add the Android signing secrets once (below), so every release is signed with the same key and updates install over earlier versions.
+3. Tag and push as above, then check the release has the archives, installers and APK.
+
+### **Android signing (one-time)**
+
+Without these repository secrets, release APKs are signed with a throwaway key and cannot be updated in place:
+
+```bash
+keytool -genkeypair -keystore release.jks -alias binaural-beats -keyalg RSA -keysize 4096 -validity 10000
+base64 -w0 release.jks   # paste as ANDROID_KEYSTORE_BASE64
+```
+
+Add `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS` under **Settings → Secrets and variables → Actions**, and keep `release.jks` backed up: losing it means users must uninstall to update.
 
 ### **Version format**
 
@@ -321,7 +349,7 @@ Tags must match `v*` (e.g., `v1.0.0`, `v0.2.0-beta`). Pre-release tags (containi
 
 ### **PR builds**
 
-Every pull request automatically builds snapshot binaries and an Android APK, uploaded as workflow artifacts. External contributors require approval via the `pr-builds` GitHub environment before builds run.
+Every pull request automatically builds snapshot binaries, the Linux app installers and an Android APK, uploaded as workflow artifacts. External contributors require approval via the `pr-builds` GitHub environment before builds run.
 
 ---
 
@@ -329,8 +357,9 @@ Every pull request automatically builds snapshot binaries and an Android APK, up
 
 | Workflow | Trigger | What it does |
 |----------|---------|-------------|
-| **CI** | Push / PR | `go vet`, multi-platform build, GoReleaser snapshot |
+| **CI** | Push / PR | `go vet`, tests, multi-platform build, GoReleaser snapshot, Tauri fmt/clippy |
 | **Release** | Tag `v*` | Full GoReleaser release to GitHub Releases |
+| **Desktop App** | Tag `v*` / PR / manual | App installers (all platforms on tags, Linux on PRs) |
 | **Android APK** | Tag `v*` / manual | Build + upload Android APK to release |
 | **PR Release** | Pull request | Snapshot binaries + APK as PR artifacts |
 
