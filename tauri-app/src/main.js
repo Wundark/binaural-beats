@@ -60,8 +60,34 @@ async function run(action) {
   }
 }
 
+// On Android, a foreground service keeps the session playing with the screen
+// off (see PlaybackService.kt). Tell it when the state changes or a seek
+// moves the end time.
+const androidPlayback = window.AndroidPlayback;
+let backgroundSync = { state: "stopped", endsAt: 0 };
+
+function syncBackgroundPlayback(status) {
+  if (!androidPlayback) return;
+  const state = !status.is_playing ? "stopped" : status.is_paused ? "paused" : "playing";
+  const remainingMs = Math.max(0, (status.total_duration - status.time) * 1000);
+  const endsAt = Date.now() + remainingMs;
+  const moved = state === "playing" && Math.abs(endsAt - backgroundSync.endsAt) > 5000;
+  if (state === backgroundSync.state && !moved) return;
+  backgroundSync = { state, endsAt };
+  try {
+    if (state === "stopped") {
+      androidPlayback.stop();
+    } else {
+      androidPlayback.update(configName.textContent, state === "playing", remainingMs);
+    }
+  } catch (e) {
+    console.error("background playback:", e);
+  }
+}
+
 function render(status) {
   current = status;
+  syncBackgroundPlayback(status);
   const loaded = status.config_loaded;
   const playing = status.is_playing;
 
@@ -251,6 +277,10 @@ document.addEventListener("keydown", (event) => {
 // Initialize: the engine may still be starting, so retry briefly.
 (async function init() {
   render(current);
+  window.__TAURI__.app
+    ?.getVersion()
+    .then((v) => (document.getElementById("app-version").textContent = `Binaural Beats ${v}`))
+    .catch(() => {});
   for (let i = 0; i < 20; i++) {
     try {
       const status = await refresh();
