@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicokosi/tauri-v2/main/core/tauri-config-schema/schema.json",
   "productName": "Binaural Beats",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.wundark.binaural-beats",
   "build": {
     "frontendDist": "../src",
