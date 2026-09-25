@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Go binaural-beats binary as a Tauri sidecar.
+# Build the Go binaural-beats engine as the Tauri sidecar (binaural-engine).
 # Tauri requires sidecar binaries to be named with the platform target triple.
 #
 # Usage: ./scripts/build-sidecar.sh [target-triple]
@@ -73,15 +73,26 @@ case "$TARGET" in
         ;;
 esac
 
-BINARY_NAME="binaural-beats-${TARGET}${EXT}"
+BINARY_NAME="binaural-engine-${TARGET}${EXT}"
+
+# Real-time playback on Linux needs CGO (ALSA). That works for native builds;
+# cross-compiled Linux sidecars are built without it and can only export WAVs.
+CGO=0
+if [ "$GOOS" = "linux" ]; then
+    if [ "$GOOS" = "$(go env GOHOSTOS)" ] && [ "$GOARCH" = "$(go env GOHOSTARCH)" ]; then
+        CGO=1
+    else
+        echo "Warning: cross-compiling for Linux without CGO; real-time playback will be unavailable."
+    fi
+fi
 
 echo "Building sidecar for $TARGET..."
-echo "  GOOS=$GOOS GOARCH=$GOARCH"
+echo "  GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=$CGO"
 echo "  Output: $OUTPUT_DIR/$BINARY_NAME"
 
 cd "$PROJECT_ROOT"
 
-CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
+CGO_ENABLED="$CGO" GOOS="$GOOS" GOARCH="$GOARCH" \
     go build -mod=vendor -ldflags="-s -w" \
     -o "$OUTPUT_DIR/$BINARY_NAME" \
     ./cmd/binaural-beats/

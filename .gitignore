@@ -10,7 +10,7 @@ dist/
 # Tauri
 tauri-app/node_modules/
 tauri-app/src-tauri/target/
-tauri-app/src-tauri/binaries/binaural-beats-*
+tauri-app/src-tauri/binaries/binaural-engine-*
 
 # Android build artifacts
 tauri-app/src-tauri/gen/android/.gradle/

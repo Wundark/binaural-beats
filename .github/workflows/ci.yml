@@ -43,3 +43,40 @@ jobs:
         with:
           version: latest
           args: build --snapshot --clean --skip=validate --id=binaural-beats --id=converter
+
+  # Compiles the Tauri desktop app, including tauri-build's checks of the
+  # bundled engine (externalBin).
+  tauri-desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install Tauri and ALSA dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev libasound2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "tauri-app/src-tauri -> target"
+
+      - name: Build Go engine sidecar
+        run: ./scripts/build-sidecar.sh
+
+      - name: Check formatting
+        working-directory: tauri-app/src-tauri
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: tauri-app/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
