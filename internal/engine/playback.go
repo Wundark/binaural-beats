@@ -1,32 +1,13 @@
-//go:build darwin || windows || ((linux || android) && cgo)
+//go:build !android || cgo
 
 package engine
 
 import (
 	"fmt"
-	"sync"
 	"time"
-
-	"github.com/gopxl/beep"
-	"github.com/gopxl/beep/speaker"
 )
 
-// playbackBuffer is the total speaker buffer, split between driver and player.
-const playbackBuffer = 100 * time.Millisecond
-
-var (
-	speakerOnce sync.Once
-	speakerErr  error
-)
-
-func initSpeaker() error {
-	speakerOnce.Do(func() {
-		speakerErr = speaker.Init(sampleRate, sampleRate.N(playbackBuffer))
-	})
-	return speakerErr
-}
-
-// Play starts real-time audio playback. On Linux/Android this requires CGO (ALSA/oboe).
+// Play starts real-time audio playback. On Android this requires CGO (Oboe).
 func (e *Engine) Play() error {
 	e.Mu.Lock()
 	defer e.Mu.Unlock()
@@ -38,8 +19,9 @@ func (e *Engine) Play() error {
 		return fmt.Errorf("no config loaded")
 	}
 
-	if err := initSpeaker(); err != nil {
-		return fmt.Errorf("failed to initialise audio output: %w", err)
+	out, err := audioOutput()
+	if err != nil {
+		return err
 	}
 
 	e.playID++
@@ -54,12 +36,9 @@ func (e *Engine) Play() error {
 	e.startAt = 0
 	e.stream = stream
 
-	speaker.Play(beep.Seq(stream, beep.Callback(func() {
-		// The callback runs with the speaker lock held; finish asynchronously so
-		// we never wait on e.Mu while Stop may hold it and wait on the speaker.
-		go e.finish(id)
-	})))
-
+	// onEnd runs on its own goroutine, so it never waits on e.Mu while the
+	// output holds its lock (Stop holds e.Mu and takes the output lock).
+	out.Play(stream, func() { e.finish(id) })
 	return nil
 }
 
@@ -84,9 +63,9 @@ func (e *Engine) Stop() error {
 		return fmt.Errorf("not playing")
 	}
 
-	// Safe to take the speaker lock here: the end-of-stream callback never
-	// blocks on e.Mu while holding it.
-	speaker.Clear()
+	if out, err := audioOutput(); err == nil {
+		out.Clear()
+	}
 	e.IsPlaying = false
 	e.stream = nil
 	close(e.Done)

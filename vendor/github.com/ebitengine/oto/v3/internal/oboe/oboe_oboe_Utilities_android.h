@@ -82,7 +82,21 @@ int getPropertyInteger(const char * name, int defaultValue);
  */
 int getSdkVersion();
 
+/**
+ * Returns whether a device is on a pre-release SDK that is at least the specified codename
+ * version.
+ *
+ * @param codename the code name to verify.
+ * @return boolean of whether the device is on a pre-release SDK and is at least the specified
+ * codename
+ */
+bool isAtLeastPreReleaseCodename(const std::string& codename);
+
 int getChannelCountFromChannelMask(ChannelMask channelMask);
+
+bool isCompressedFormat(AudioFormat format);
+
+std::string toString(const PlaybackParameters& parameters);
 
 } // namespace oboe
 
