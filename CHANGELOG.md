@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### App
+- Stop fades the audio out instead of cutting it off, so it no longer clicks.
+- The time stretch label always shows one decimal place (1.0x rather than 1x).
+
 ## 0.2.0
 
 ### App

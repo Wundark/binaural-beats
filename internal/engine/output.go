@@ -22,10 +22,11 @@ import (
 type output struct {
 	player *oto.Player
 
-	mu     sync.Mutex
-	stream beep.Streamer // nil when idle (silence)
-	onEnd  func()
-	buf    [][2]float64
+	mu      sync.Mutex
+	stream  beep.Streamer // nil when idle (silence)
+	onEnd   func()
+	fadeOut bool // fade the stream out over the next buffer, then drop it
+	buf     [][2]float64
 }
 
 // outputBuffer is the total output latency, split between driver and player.
@@ -78,14 +79,16 @@ func audioOutput() (*output, error) {
 // goroutine) when s runs out, but not if it is replaced or cleared first.
 func (o *output) Play(s beep.Streamer, onEnd func()) {
 	o.mu.Lock()
-	o.stream, o.onEnd = s, onEnd
+	o.stream, o.onEnd, o.fadeOut = s, onEnd, false
 	o.mu.Unlock()
 }
 
-// Clear stops the current stream.
+// Clear stops the current stream, fading it out over the next buffer so
+// stopping does not click. onEnd is not called.
 func (o *output) Clear() {
 	o.mu.Lock()
-	o.stream, o.onEnd = nil, nil
+	o.onEnd = nil
+	o.fadeOut = o.stream != nil
 	o.mu.Unlock()
 }
 
@@ -112,6 +115,10 @@ func (o *output) Read(p []byte) (int, error) {
 			}
 			o.stream, o.onEnd = nil, nil
 		}
+		if o.fadeOut {
+			fadeFrames(buf[:n], int(pauseRampSeconds*float64(sampleRate)))
+			o.stream, o.onEnd, o.fadeOut = nil, nil, false
+		}
 	}
 	o.mu.Unlock()
 
@@ -125,4 +132,18 @@ func (o *output) Read(p []byte) (int, error) {
 		}
 	}
 	return frames * bytesPerFrame, nil
+}
+
+// fadeFrames fades buf linearly to silence over its first n frames (or all of
+// it, if shorter) and silences the rest.
+func fadeFrames(buf [][2]float64, n int) {
+	n = min(n, len(buf))
+	for i := range buf {
+		g := 0.0
+		if i < n {
+			g = 1 - float64(i+1)/float64(n)
+		}
+		buf[i][0] *= g
+		buf[i][1] *= g
+	}
 }

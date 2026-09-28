@@ -470,7 +470,7 @@ btnExportPlaylist.addEventListener("click", () => run(() => exportWav(true)));
 // ─── Time stretch ───
 
 stretchSlider.addEventListener("input", () => {
-  stretchValue.textContent = `${stretchSlider.value}x`;
+  stretchValue.textContent = `${Number(stretchSlider.value).toFixed(1)}x`;
 });
 
 btnStretch.addEventListener("click", () =>
@@ -567,7 +567,7 @@ document.addEventListener("keydown", (event) => {
       volumeSlider.value = Math.round(status.volume * 100);
       volumeValue.textContent = `${volumeSlider.value}%`;
       stretchSlider.value = status.stretch;
-      stretchValue.textContent = `${stretchSlider.value}x`;
+      stretchValue.textContent = `${Number(stretchSlider.value).toFixed(1)}x`;
       await loadPresets();
       await restorePlaylist();
       await applySettings();
