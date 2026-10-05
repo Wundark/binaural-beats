@@ -171,7 +171,9 @@ async fn handle_event(app: AppHandle, event: MediaControlEvent) {
     let playing = status.is_playing && !status.is_paused;
     let seek = |t: f64| Some(("seek", Some(serde_json::json!({ "time": t.max(0.0) }))));
     let call = match event {
-        MediaControlEvent::Play if !status.is_playing && status.config_loaded => Some(("play", None)),
+        MediaControlEvent::Play if !status.is_playing && status.config_loaded => {
+            Some(("play", None))
+        }
         MediaControlEvent::Play if status.is_paused => Some(("resume", None)),
         MediaControlEvent::Pause if playing => Some(("pause", None)),
         MediaControlEvent::Toggle if playing => Some(("pause", None)),
