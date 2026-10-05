@@ -285,6 +285,12 @@ func handleRequest(eng *engine.Engine, req Request) Response {
 			result(&resp)(eng.PlaylistSelect(params.Index))
 		}
 
+	case "next":
+		result(&resp)(map[string]interface{}{"ok": true}, eng.Next())
+
+	case "previous":
+		result(&resp)(map[string]interface{}{"ok": true}, eng.Previous())
+
 	case "set_playlist_options":
 		var params PlaylistOptionsParams
 		if decode(req, &params, &resp) {

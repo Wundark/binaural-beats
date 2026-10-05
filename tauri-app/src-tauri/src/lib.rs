@@ -3,6 +3,9 @@ use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::Mutex;
 
+#[cfg(desktop)]
+mod media;
+
 // ─── FFI bindings for the Go shared library (Android) ───
 
 #[cfg(target_os = "android")]
@@ -27,6 +30,30 @@ mod ffi {
             Ok(response)
         }
     }
+}
+
+/// Lets the Android playback service (Engine.kt) control the engine directly,
+/// so the notification's buttons work while the page is suspended.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "system" fn Java_com_wundark_binaural_1beats_Engine_rpc<'local>(
+    mut env: jni::JNIEnv<'local>,
+    _class: jni::objects::JClass<'local>,
+    request: jni::objects::JString<'local>,
+) -> jni::sys::jstring {
+    let response = match env.get_string(&request) {
+        Ok(request) => ffi::call_rpc(&String::from(request)).unwrap_or_else(|e| {
+            serde_json::json!({ "jsonrpc": "2.0", "error": { "code": -32603, "message": e } })
+                .to_string()
+        }),
+        Err(e) => {
+            serde_json::json!({ "jsonrpc": "2.0", "error": { "code": -32700, "message": e.to_string() } })
+                .to_string()
+        }
+    };
+    env.new_string(response)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 // ─── Sidecar process (Desktop: Windows, macOS, Linux) ───
@@ -112,7 +139,11 @@ struct PlaybackStatus {
     volume: f64,
     stretch: f64,
     config_loaded: bool,
+    #[serde(default)]
+    name: String,
     playlist_index: i64,
+    #[serde(default)]
+    playlist_length: i64,
     remaining: f64,
 }
 
@@ -165,6 +196,11 @@ impl Backend {
         }
 
         Ok(resp.result.unwrap_or(serde_json::Value::Null))
+    }
+
+    async fn status(&mut self) -> Result<PlaybackStatus, String> {
+        let result = self.call("get_status", None).await?;
+        serde_json::from_value(result).map_err(|e| format!("Failed to parse status: {}", e))
     }
 
     #[cfg(target_os = "android")]
@@ -266,10 +302,14 @@ async fn set_volume(state: tauri::State<'_, BackendState>, volume: f64) -> Resul
 }
 
 #[tauri::command]
-async fn get_status(state: tauri::State<'_, BackendState>) -> Result<PlaybackStatus, String> {
-    let mut guard = state.lock().await;
-    let result = guard.call("get_status", None).await?;
-    serde_json::from_value(result).map_err(|e| format!("Failed to parse status: {}", e))
+async fn get_status(
+    #[allow(unused_variables)] app: tauri::AppHandle,
+    state: tauri::State<'_, BackendState>,
+) -> Result<PlaybackStatus, String> {
+    let status = state.lock().await.status().await?;
+    #[cfg(desktop)]
+    media::update(&app, &status);
+    Ok(status)
 }
 
 #[tauri::command]
@@ -526,6 +566,9 @@ pub fn run() {
 
                 #[cfg(not(target_os = "android"))]
                 setup_desktop(state);
+
+                #[cfg(desktop)]
+                media::init(app);
 
                 Ok(())
             }

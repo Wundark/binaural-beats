@@ -2,6 +2,9 @@
     <string name="app_name">Binaural Beats</string>
     <string name="main_activity_title">Binaural Beats</string>
     <string name="playback_channel">Playback</string>
-    <string name="playback_playing">Playing</string>
-    <string name="playback_paused">Paused</string>
+    <string name="playback_playlist">Playlist · %1$d of %2$d</string>
+    <string name="playback_play">Play</string>
+    <string name="playback_pause">Pause</string>
+    <string name="playback_previous">Previous</string>
+    <string name="playback_next">Next</string>
 </resources>

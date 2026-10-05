@@ -41,14 +41,15 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(PlaybackBridge(), "AndroidPlayback")
   }
 
-  /** Lets the page keep playback running in the background (see PlaybackService). */
+  /** Lets the page start the media notification that keeps playback running (see PlaybackService). */
   inner class PlaybackBridge {
     private var askedForNotifications = false
 
+    /** Playback started or changed; the service reads the engine's state. */
     @JavascriptInterface
-    fun update(title: String, playing: Boolean, remainingMs: Double) {
-      if (playing) askForNotificationPermission()
-      PlaybackService.update(this@MainActivity, title, playing, remainingMs.toLong())
+    fun update() {
+      askForNotificationPermission()
+      PlaybackService.update(this@MainActivity)
     }
 
     @JavascriptInterface

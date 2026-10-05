@@ -1,6 +1,6 @@
 [package]
 name = "binaural-beats"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [[bin]]
@@ -21,6 +21,10 @@ tauri-plugin-fs = "2"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# System media controls; zbus talks to D-Bus without needing libdbus.
+souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
