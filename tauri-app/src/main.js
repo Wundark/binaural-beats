@@ -115,27 +115,24 @@ async function run(action) {
   }
 }
 
-// On Android, a foreground service keeps the session playing with the screen
-// off (see PlaybackService.kt). Tell it when the state changes, the session
-// changes, or a seek moves the end time.
+// On Android, a foreground service shows the session as a media notification
+// and keeps it playing with the screen off (see PlaybackService.kt). It reads
+// the engine itself while playing; tell it when playback starts or changes
+// while paused (when it does not poll).
 const androidPlayback = window.AndroidPlayback;
-const LOOPING_MS = 12 * 3600 * 1000; // a looping playlist has no end; renew often
-let backgroundSync = { state: "stopped", endsAt: 0, title: "" };
+let backgroundSync = "";
 
 function syncBackgroundPlayback(status) {
   if (!androidPlayback) return;
-  const state = !status.is_playing ? "stopped" : status.is_paused ? "paused" : "playing";
-  const remainingMs = status.remaining < 0 ? LOOPING_MS : Math.max(0, status.remaining * 1000);
-  const endsAt = Date.now() + remainingMs;
-  const title = configName.textContent;
-  const moved = state === "playing" && Math.abs(endsAt - backgroundSync.endsAt) > 5000;
-  if (state === backgroundSync.state && title === backgroundSync.title && !moved) return;
-  backgroundSync = { state, endsAt, title };
+  const state = !status.is_playing ? "stopped" : status.is_paused ? `paused ${status.time}` : "playing";
+  const key = `${state} ${status.playlist_index} ${status.name}`;
+  if (key === backgroundSync) return;
+  backgroundSync = key;
   try {
-    if (state === "stopped") {
+    if (!status.is_playing) {
       androidPlayback.stop();
     } else {
-      androidPlayback.update(title, state === "playing", remainingMs);
+      androidPlayback.update();
     }
   } catch (e) {
     console.error("background playback:", e);
@@ -143,8 +140,9 @@ function syncBackgroundPlayback(status) {
 }
 
 function render(status) {
-  // While playing, the playlist moving on changes the loaded session.
-  const advanced = status.is_playing && status.playlist_index >= 0 && status.playlist_index !== current.playlist_index;
+  // The loaded session changes when the playlist moves on while playing, and
+  // with the media controls' next and previous buttons.
+  const advanced = status.playlist_index >= 0 && status.playlist_index !== current.playlist_index;
   current = status;
   if (advanced) syncSession().catch(() => {});
   syncBackgroundPlayback(status);
@@ -535,6 +533,9 @@ document.addEventListener("keydown", (event) => {
     btnPlay.click();
   }
 });
+
+// The system media controls (desktop) changed playback.
+window.__TAURI__.event?.listen("media-control", () => refresh().catch(() => {}));
 
 // Initialize: the engine may still be starting, so retry briefly.
 (async function init() {

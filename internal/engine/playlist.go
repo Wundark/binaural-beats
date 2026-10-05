@@ -173,13 +173,72 @@ func (e *Engine) PlaylistSelect(i int) (SessionInfo, error) {
 	if i < 0 || i >= len(e.playlist) {
 		return SessionInfo{}, fmt.Errorf("no playlist item %d", i)
 	}
+	e.jumpLocked(i)
+	return e.sessionInfo(), nil
+}
+
+// jumpLocked loads item i from its start, crossfading to it while playing.
+// The caller must hold e.Mu.
+func (e *Engine) jumpLocked(i int) {
 	if e.IsPlaying {
 		e.player.jump(i)
 	} else {
 		e.startAt = 0
 	}
 	e.selectLocked(i)
-	return e.sessionInfo(), nil
+}
+
+// restartAfter is how far into a session Previous goes back to its start
+// rather than to the session before, as media players do.
+const restartAfter = 3.0
+
+// Next moves to the next session in the playlist, wrapping round if the
+// playlist loops.
+func (e *Engine) Next() error {
+	e.Mu.Lock()
+	defer e.Mu.Unlock()
+	e.syncPlaying()
+	if e.plIndex < 0 {
+		return fmt.Errorf("the session is not in the playlist")
+	}
+	n := e.plIndex + 1
+	if n == len(e.playlist) {
+		if !e.loop {
+			return fmt.Errorf("no next session")
+		}
+		n = 0
+	}
+	e.jumpLocked(n)
+	return nil
+}
+
+// Previous goes back to the start of the session, or, near its start, to
+// the session before in the playlist.
+func (e *Engine) Previous() error {
+	e.Mu.Lock()
+	defer e.Mu.Unlock()
+	e.syncPlaying()
+	if e.config == nil {
+		return fmt.Errorf("no config loaded")
+	}
+	t := e.startAt
+	if e.IsPlaying {
+		t = float64(e.player.Position()) / float64(sampleRate)
+	}
+	p := e.plIndex - 1
+	if p < 0 && e.loop && e.plIndex >= 0 {
+		p = len(e.playlist) - 1
+	}
+	if t > restartAfter || p < 0 || p == e.plIndex {
+		if e.IsPlaying {
+			e.player.Seek(0)
+		} else {
+			e.startAt = 0
+		}
+		return nil
+	}
+	e.jumpLocked(p)
+	return nil
 }
 
 // SetPlaylistOptions sets the crossfade between sessions, in seconds, and

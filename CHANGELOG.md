@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### App
+- Media controls: the session shows as a standard media player in the Android notification, lock screen and quick settings (play/pause, previous, next and a seek bar, also controlled by headset buttons), and in the desktop media controls (the Windows media flyout, macOS Now Playing and Linux MPRIS), which the keyboard media keys control too.
+- Next and previous: next moves to the next playlist session; previous restarts the session, or near its start goes back to the session before.
 - Stop fades the audio out instead of cutting it off, so it no longer clicks.
 - The time stretch label always shows one decimal place (1.0x rather than 1x).
 

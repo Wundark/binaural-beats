@@ -19,7 +19,7 @@ It comes as an app for Windows, macOS, Linux and Android, and as command-line to
 - **Pink Noise Integration**: Optionally include pink noise in your audio sessions.
 - **Time-Based Configuration**: Specify frequency and volume changes at specific times.
 - **Smooth Transitions**: Linear interpolation between frequency and volume changes for seamless transitions.
-- **Apps for desktop and Android**: A built-in session library, a timeline of the session you can tap or drag to seek (plus a position slider and skip buttons), and pause, resume and volume control. On Android, sessions keep playing with the screen off.
+- **Apps for desktop and Android**: A built-in session library, a timeline of the session you can tap or drag to seek (plus a position slider and skip buttons), and pause, resume and volume control. Playback shows in the system media controls (the Android media notification and lock screen, the Windows media flyout, macOS Now Playing and Linux MPRIS), so headset buttons and media keys work. On Android, sessions keep playing with the screen off.
 - **Playlists**: Queue sessions to play one after another, crossfading between them (0 to 60 seconds, set in Settings), optionally repeating. The playlist is kept between launches and can be exported as one WAV file.
 - **SBaGen Support**: Open SBaGen (`.sbg`) session files directly, or convert them to YAML.
 - **WAV Export**: Render a whole session to a WAV file.
@@ -204,7 +204,7 @@ Everything is on the [GitHub Releases](https://github.com/Wundark/binaural-beats
 - **Windows**: `.msi` or the `-setup.exe` installer
 - **macOS**: `.dmg` for Apple Silicon (`aarch64`) or Intel (`x64`)
 - **Linux**: `.deb`, `.rpm` or `.AppImage`
-- **Android**: APK (arm64, armv7). Allow the notification permission so sessions keep playing with the screen off.
+- **Android**: APK (arm64, armv7). Allow the notification permission so the media controls show and sessions keep playing with the screen off.
 
 **Command-line tools** (`binaural-beats` player and `converter`): archives for Linux (amd64, arm64, armv7), macOS (amd64, arm64) and Windows (amd64). On Linux they play through PulseAudio or PipeWire, falling back to ALSA.
 

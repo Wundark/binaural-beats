@@ -22,5 +22,9 @@ tauri-plugin-fs = "2"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# System media controls; zbus talks to D-Bus without needing libdbus.
+souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] }
+
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"

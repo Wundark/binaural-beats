@@ -121,3 +121,52 @@ func TestExportPlaylistWAV(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNextAndPrevious(t *testing.T) {
+	e := NewEngine()
+	if err := e.Next(); err == nil {
+		t.Fatal("next with nothing loaded should fail")
+	}
+	e.load(cfgNamed("solo", 60))
+	if err := e.Next(); err == nil {
+		t.Fatal("next outside the playlist should fail")
+	}
+	e.Seek(30)
+	if err := e.Previous(); err != nil || e.startAt != 0 {
+		t.Fatalf("previous outside the playlist should restart: %v at %v", err, e.startAt)
+	}
+
+	for _, n := range []string{"a", "b", "c"} {
+		e.PlaylistAdd(cfgNamed(n, 60))
+	}
+	e.PlaylistSelect(0)
+	if st := e.GetStatus(); st.Name != "a" || st.PlaylistLength != 3 {
+		t.Fatalf("status: %+v", st)
+	}
+	e.Next()
+	e.Next()
+	if st := e.GetStatus(); st.PlaylistIndex != 2 || st.Name != "c" {
+		t.Fatalf("after two nexts: %+v", st)
+	}
+	if err := e.Next(); err == nil {
+		t.Fatal("next at the end should fail unless the playlist loops")
+	}
+	e.SetPlaylistOptions(0, true)
+	if err := e.Next(); err != nil || e.plIndex != 0 {
+		t.Fatalf("looping next: %v index %d", err, e.plIndex)
+	}
+	// Near the start, previous goes to the session before (wrapping when
+	// looping); further in, it restarts the session.
+	if err := e.Previous(); err != nil || e.plIndex != 2 {
+		t.Fatalf("looping previous: %v index %d", err, e.plIndex)
+	}
+	e.Seek(10)
+	if e.Previous(); e.plIndex != 2 || e.startAt != 0 {
+		t.Fatalf("previous after 10s: index %d at %v", e.plIndex, e.startAt)
+	}
+	e.SetPlaylistOptions(0, false)
+	e.PlaylistSelect(0)
+	if e.Previous(); e.plIndex != 0 {
+		t.Fatalf("previous at the first session moved to %d", e.plIndex)
+	}
+}

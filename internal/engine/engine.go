@@ -58,8 +58,12 @@ type Status struct {
 	Volume          float64 `json:"volume"`
 	Stretch         float64 `json:"stretch"`
 	ConfigLoaded    bool    `json:"config_loaded"`
+	// Name is the loaded session's name.
+	Name string `json:"name"`
 	// PlaylistIndex is the loaded session's place in the playlist, or -1.
 	PlaylistIndex int `json:"playlist_index"`
+	// PlaylistLength is the number of sessions in the playlist.
+	PlaylistLength int `json:"playlist_length"`
 	// Remaining is the time left until playback ends, including the rest of
 	// the playlist, or -1 if the playlist loops.
 	Remaining float64 `json:"remaining"`
@@ -650,15 +654,17 @@ func (e *Engine) GetStatus() Status {
 	e.syncPlaying()
 
 	s := Status{
-		IsPlaying:     e.IsPlaying,
-		Volume:        e.volume,
-		Stretch:       e.stretch,
-		ConfigLoaded:  e.config != nil,
-		PlaylistIndex: e.plIndex,
+		IsPlaying:      e.IsPlaying,
+		Volume:         e.volume,
+		Stretch:        e.stretch,
+		ConfigLoaded:   e.config != nil,
+		PlaylistIndex:  e.plIndex,
+		PlaylistLength: len(e.playlist),
 	}
 	if e.config == nil {
 		return s
 	}
+	s.Name = e.config.Name
 	s.TotalDuration = e.totalDuration
 	t := e.startAt
 	if e.IsPlaying {
