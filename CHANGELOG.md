@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 ### App
 - Media controls: the session shows as a standard media player in the Android notification, lock screen and quick settings (play/pause, previous, next and a seek bar, also controlled by headset buttons), and in the desktop media controls (the Windows media flyout, macOS Now Playing and Linux MPRIS), which the keyboard media keys control too.
